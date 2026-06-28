@@ -54,11 +54,11 @@ def contains_any_term(text: str, terms: list[str]) -> bool:
 
 def is_relevant(title: str, summary: str = "") -> bool:
     text = f"{title} {summary}".lower()
-    if any(keyword in text for keyword in ALWAYS_INCLUDE):
+    if contains_any_term(text, ALWAYS_INCLUDE):
         return True
-    if any(noise in text for noise in NOISE_KEYWORDS) and not any(keyword in text for keyword in ALWAYS_INCLUDE):
+    if contains_any_term(text, NOISE_KEYWORDS) and not contains_any_term(text, ALWAYS_INCLUDE):
         return False
-    return any(keyword in text for keyword in CORE_KEYWORDS)
+    return contains_any_term(text, CORE_KEYWORDS)
 
 
 def detect_category(title: str, summary: str = "") -> str:
