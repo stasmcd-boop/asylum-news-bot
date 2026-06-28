@@ -29,11 +29,19 @@ def _entry_summary(entry) -> str:
     return ""
 
 
+def _clean_google_news_title(title: str) -> str:
+    if " - " in title:
+        return title.rsplit(" - ", 1)[0].strip()
+    return title.strip()
+
+
 def fetch_rss_source(source) -> List[NewsItem]:
     items: List[NewsItem] = []
     parsed = feedparser.parse(source.url)
-    for entry in parsed.entries[:30]:
-        title = getattr(entry, "title", "").strip()
+    limit = 50 if source.type == "google_news" else 30
+    for entry in parsed.entries[:limit]:
+        raw_title = getattr(entry, "title", "").strip()
+        title = _clean_google_news_title(raw_title) if source.type == "google_news" else raw_title
         link = getattr(entry, "link", "").strip()
         summary = _entry_summary(entry)
         published = _parse_date(getattr(entry, "published", None) or getattr(entry, "updated", None))
@@ -41,6 +49,9 @@ def fetch_rss_source(source) -> List[NewsItem]:
             continue
         if not is_relevant(title, summary):
             continue
+        importance = detect_importance(title, summary)
+        if source.group == "news" and importance == "info":
+            importance = "medium"
         items.append(
             NewsItem(
                 source=source.name,
@@ -49,7 +60,7 @@ def fetch_rss_source(source) -> List[NewsItem]:
                 published_at=published,
                 summary=summary,
                 category=detect_category(title, summary),
-                importance=detect_importance(title, summary),
+                importance=importance,
             )
         )
     return items
@@ -111,7 +122,7 @@ def fetch_all_sources() -> List[NewsItem]:
     collected: List[NewsItem] = []
     for source in enabled_sources():
         try:
-            if source.type == "rss":
+            if source.type in ["rss", "google_news"]:
                 collected.extend(fetch_rss_source(source))
             elif source.type == "federal_register":
                 collected.extend(fetch_federal_register())
