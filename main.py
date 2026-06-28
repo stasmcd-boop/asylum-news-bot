@@ -3,6 +3,7 @@ from datetime import datetime
 
 from app.config import settings
 from app.database import Database
+from app.post_builder import build_basic_post
 from app.sources import fetch_all_sources
 from app.telegram_client import TelegramClient
 
@@ -40,7 +41,25 @@ def run_once() -> None:
     print(f"\nFound relevant items: {len(items)}")
     print(f"New items saved: {new_count if db.enabled() else 'database disabled'}")
     if not db.enabled():
-        print("Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to .env to save items.")
+        print("Database is not active. Console mode is enabled.")
+        if db.error:
+            print(db.error)
+
+
+def publish_latest() -> None:
+    settings.require_telegram()
+    items = fetch_all_sources()
+    if not items:
+        print("No relevant items found.")
+        return
+
+    priority = {"important": 0, "medium": 1, "info": 2}
+    items.sort(key=lambda x: (priority.get(x.importance, 9), x.published_at or datetime.min))
+    item = items[0]
+    client = TelegramClient(settings.telegram_bot_token, settings.telegram_channel)
+    result = client.send_message(build_basic_post(item))
+    print("Published:", item.title)
+    print("Telegram response:", result)
 
 
 def main() -> None:
@@ -49,7 +68,7 @@ def main() -> None:
         "command",
         nargs="?",
         default="test-telegram",
-        choices=["test-telegram", "run-once"],
+        choices=["test-telegram", "run-once", "publish-latest"],
         help="Command to run",
     )
     args = parser.parse_args()
@@ -58,6 +77,8 @@ def main() -> None:
         test_telegram()
     elif args.command == "run-once":
         run_once()
+    elif args.command == "publish-latest":
+        publish_latest()
 
 
 if __name__ == "__main__":
