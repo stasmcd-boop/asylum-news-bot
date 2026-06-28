@@ -5,13 +5,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.bot_runner import fresh_items, sort_items
+from app.content_fetcher import ArticleContent, extract_image_url_from_html, extract_readable_text_from_html
 from app.draft_store import DraftStore
+from app.editorial_text import fallback_editorial_text
 from app.filters import detect_category, detect_importance, is_relevant
 from app.intelligence import analyze_item, detect_deadline, determine_urgency
 from app.local_state import LocalState
 from app.models import NewsItem
 from app.search import filter_items, matches_query
 from app.sources import _parse_page_date, deduplicate_items, rank_items
+
+
+def offline_editorial_builder(item, _extracted_text, analysis):
+    return fallback_editorial_text(item, analysis)
 
 
 class FilterTests(unittest.TestCase):
@@ -101,6 +107,23 @@ class SourceCollectorTests(unittest.TestCase):
         self.assertEqual(rank_items([wire, official]), [official, wire])
 
 
+class ArticleExtractionTests(unittest.TestCase):
+    def test_extract_readable_text_removes_navigation(self):
+        html = """
+        <html><body><nav>Menu Login</nav><article><h1>Title</h1><p>Useful immigration article text.</p></article></body></html>
+        """
+
+        text = extract_readable_text_from_html(html)
+
+        self.assertIn("Useful immigration article text.", text)
+        self.assertNotIn("Menu Login", text)
+
+    def test_extract_image_prefers_open_graph_image(self):
+        html = '<html><head><meta property="og:image" content="/image.jpg"></head><body></body></html>'
+
+        self.assertEqual(extract_image_url_from_html(html, "https://example.com/news"), "https://example.com/image.jpg")
+
+
 class LocalStateTests(unittest.TestCase):
     def test_mark_published_persists_to_configured_directory(self):
         with TemporaryDirectory() as tmp:
@@ -162,7 +185,14 @@ class IntelligenceTests(unittest.TestCase):
 class DraftStoreTests(unittest.TestCase):
     def test_ingest_items_persists_structured_draft(self):
         with TemporaryDirectory() as tmp:
-            store = DraftStore(Path(tmp))
+            store = DraftStore(
+                Path(tmp),
+                content_fetcher=lambda _url: ArticleContent(
+                    extracted_text="Full readable article text.",
+                    image_url="https://example.com/image.jpg",
+                ),
+                editorial_builder=offline_editorial_builder,
+            )
             item = NewsItem(
                 source="USCIS News",
                 title="DHS extends Temporary Protected Status",
@@ -179,19 +209,46 @@ class DraftStoreTests(unittest.TestCase):
             self.assertEqual(len(saved), 1)
             self.assertEqual(saved[0].status, "draft_ready")
             self.assertIn("impact_score", saved[0].analysis)
-            self.assertIn("Информационный пост, не юридическая консультация.", saved[0].draft_text)
+            self.assertEqual(saved[0].extracted_text, "Full readable article text.")
+            self.assertEqual(saved[0].image_url, "https://example.com/image.jpg")
+            self.assertIn("Информационный пост, не юридическая консультация.", saved[0].telegram_text)
 
     def test_update_changes_status_and_text(self):
         with TemporaryDirectory() as tmp:
-            store = DraftStore(Path(tmp))
+            store = DraftStore(
+                Path(tmp),
+                content_fetcher=lambda _url: ArticleContent(),
+                editorial_builder=offline_editorial_builder,
+            )
             item = NewsItem(source="USCIS", title="EAD update", url="https://example.com/ead-draft", category="ead")
             draft = store.ingest_items([item])[0]
 
-            updated = store.update(draft.id, draft_text="new text", status="ignored")
+            updated = store.update(draft.id, draft_text="new text", status="ignored", image_url="https://example.com/manual.jpg")
 
             self.assertIsNotNone(updated)
             self.assertEqual(store.get(draft.id).status, "ignored")
-            self.assertEqual(store.get(draft.id).draft_text, "new text")
+            self.assertEqual(store.get(draft.id).telegram_text, "new text")
+            self.assertEqual(store.get(draft.id).image_url, "https://example.com/manual.jpg")
+
+
+class TelegramPostTests(unittest.TestCase):
+    def test_offline_post_contains_source_and_disclaimer(self):
+        from app.offline_editor import build_offline_post
+
+        item = NewsItem(
+            source="USCIS News",
+            title="USCIS opens asylum office",
+            url="https://example.com/source",
+            category="asylum",
+            importance="medium",
+            summary="Asylum office update.",
+        )
+
+        post = build_offline_post(item)
+
+        self.assertIn("https://example.com/source", post)
+        self.assertIn("Информационный пост, не юридическая консультация.", post)
+        self.assertNotIn("OpenAI", post)
 
 
 class SearchTests(unittest.TestCase):

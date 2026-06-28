@@ -146,6 +146,7 @@ def _build_item(source: SourceConfig, title: str, link: str, summary: str, publi
         category=detect_category(title, summary),
         importance=importance,
         source_rank=100 - source.priority,
+        source_type=source.group,
     )
 
 

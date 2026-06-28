@@ -19,3 +19,17 @@ class TelegramClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def send_photo(self, image_url: str, caption: str = "") -> dict:
+        response = requests.post(
+            f"{self.base_url}/sendPhoto",
+            json={
+                "chat_id": self.channel,
+                "photo": image_url,
+                "caption": caption[:1024],
+                "parse_mode": "HTML",
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()

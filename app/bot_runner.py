@@ -59,7 +59,7 @@ def publish_new_items(bot_token: str, channel: str, limit: int = 1, use_ai: bool
         draft = store.get(draft_id_for_url(item.url))
         if draft and draft.status in {"published", "ignored"}:
             continue
-        post = draft.draft_text if draft else build_post(item, use_ai=use_ai)
+        post = draft.telegram_text if draft else build_post(item, use_ai=use_ai)
         client.send_message(post)
         state.mark_published(item.url)
         store.update_by_url(item.url, draft_text=post, status="published")

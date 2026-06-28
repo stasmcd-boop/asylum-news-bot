@@ -249,6 +249,7 @@ def home():
     <div class="card">
       <h2>Что изменилось в последнем релизе</h2>
       <ul>{release_rows}</ul>
+      <p class="muted">Редактор сохраняет структурированные черновики, показывает исходный текст, русское объяснение, изображение и предпросмотр Telegram-поста перед отправкой.</p>
     </div>
 
     <div class="grid">
@@ -353,11 +354,13 @@ def drafts(q: str = "", category: str = "", urgency: str = "", source: str = "",
     store.ingest_items(collect_sources().items)
     rows = []
     for draft in store.list_drafts(query=q, category=category, urgency=urgency, source=source, status=status):
-        analysis = draft.analysis
+        affected = ", ".join(draft.affected_groups[:3])
         rows.append(f"""
         <div class="card">
           <h3>{escape(draft.title)}</h3>
-          <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.status)} | urgency: {escape(analysis.get("urgency", ""))} | impact: {analysis.get("impact_score", 0)}</p>
+          <p class="muted">{escape(draft.source)} | {escape(draft.published_at or "no-date")} | {escape(draft.category)} | {escape(draft.status)} | urgency: {escape(draft.urgency)} | impact: {draft.impact_score}</p>
+          <p>{escape(draft.russian_summary)}</p>
+          <p class="muted">Affected: {escape(affected or "not detected")}</p>
           <p class="muted">Tags: {escape(", ".join(draft.tags))}</p>
           <a class="button" href="/drafts/{escape(draft.id)}">Open draft</a>
           <a class="button secondary" href="{escape(draft.url)}" target="_blank">Source</a>
@@ -374,28 +377,44 @@ def draft_detail(draft_id: str):
     if not draft:
         return page("Draft not found", "<h1>Draft not found</h1><a class='button secondary' href='/drafts'>Back</a>")
     analysis = draft.analysis
-    affected = "".join(f"<li>{escape(group)}</li>" for group in analysis.get("affected_groups", []))
+    affected = "".join(f"<li>{escape(group)}</li>" for group in draft.affected_groups)
     actions = "".join(f"<li>{escape(step)}</li>" for step in analysis.get("action_steps_ru", []))
+    image = f'<img src="{escape(draft.image_url)}" alt="" style="max-width:100%; border-radius:12px; margin-top:12px;">' if draft.image_url else "<p class='muted'>No image detected yet.</p>"
     body = f"""
     <h1>Draft details</h1>
     <a class="button secondary" href="/drafts">Back to queue</a>
     <a class="button secondary" href="{escape(draft.url)}" target="_blank">Open source</a>
     <div class="card">
       <h2>{escape(draft.title)}</h2>
-      <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.status)}</p>
-      <p><b>Urgency:</b> {escape(analysis.get("urgency", ""))} | <b>Impact:</b> {analysis.get("impact_score", 0)} | <b>Deadline:</b> {escape(analysis.get("deadline", "") or "none")}</p>
+      <p class="muted">{escape(draft.source)} | {escape(draft.source_type)} | {escape(draft.category)} | {escape(draft.status)}</p>
+      <p><b>Publication date:</b> {escape(draft.published_at or "unknown")}</p>
+      <p><b>Original URL:</b> <a href="{escape(draft.url)}" target="_blank">{escape(draft.url)}</a></p>
+      <p><b>Urgency:</b> {escape(draft.urgency)} | <b>Impact:</b> {draft.impact_score} | <b>Deadline:</b> {escape(analysis.get("deadline", "") or "none")}</p>
       <p><b>Action required:</b> {escape(str(analysis.get("action_required", False)))}</p>
-      <p><b>Summary:</b> {escape(analysis.get("plain_russian_summary", ""))}</p>
-      <p><b>Recommended action:</b> {escape(analysis.get("recommended_action", ""))}</p>
+      <p><b>Russian summary:</b> {escape(draft.russian_summary)}</p>
+      <p><b>Russian explanation:</b> {escape(draft.russian_explanation)}</p>
+      <p><b>Recommended action:</b> {escape(draft.recommended_action)}</p>
+      <p><b>Tags:</b> {escape(", ".join(draft.tags))}</p>
       <p><b>Affected groups</b></p>
       <ul>{affected}</ul>
       <p><b>Action steps</b></p>
       <ul>{actions}</ul>
     </div>
     <div class="card">
+      <h2>Source text</h2>
+      <pre>{escape(draft.extracted_text or "Full text was not extracted. Use the source link above.")}</pre>
+    </div>
+    <div class="card">
+      <h2>Image</h2>
+      {image}
+    </div>
+    <div class="card">
       <h2>Draft preview</h2>
       <form method="post" action="/drafts/{escape(draft.id)}">
-        <textarea name="text">{escape(draft.draft_text)}</textarea>
+        <label>Image URL
+          <input name="image_url" value="{escape(draft.image_url)}" placeholder="https://...">
+        </label>
+        <textarea name="text">{escape(draft.telegram_text)}</textarea>
         <br>
         <button type="submit" name="action" value="save">Save draft</button>
         <button class="warn" type="submit" name="action" value="publish">Publish to Telegram</button>
@@ -407,25 +426,25 @@ def draft_detail(draft_id: str):
 
 
 @app.post("/drafts/{draft_id}", response_class=HTMLResponse)
-def update_draft(draft_id: str, text: str = Form(...), action: str = Form(...)):
+def update_draft(draft_id: str, text: str = Form(...), action: str = Form(...), image_url: str = Form("")):
     store = DraftStore()
     if action == "publish":
         if not settings.telegram_bot_token or not settings.telegram_channel:
             result = "Telegram не настроен. Проверь .env."
-            store.update(draft_id, draft_text=text)
+            store.update(draft_id, draft_text=text, image_url=image_url)
         else:
-            draft = store.update(draft_id, draft_text=text)
+            draft = store.update(draft_id, draft_text=text, image_url=image_url)
             if not draft:
                 return page("Draft not found", "<h1>Draft not found</h1><a class='button secondary' href='/drafts'>Back</a>")
             TelegramClient(settings.telegram_bot_token, settings.telegram_channel).send_message(text[:3900])
             LocalState().mark_published(draft.url)
-            store.update(draft_id, draft_text=text, status="published")
+            store.update(draft_id, draft_text=text, status="published", image_url=image_url)
             result = "Draft published to Telegram."
     elif action == "ignore":
-        store.update(draft_id, draft_text=text, status="ignored")
+        store.update(draft_id, draft_text=text, status="ignored", image_url=image_url)
         result = "Draft marked as ignored."
     else:
-        store.update(draft_id, draft_text=text, status="draft_ready")
+        store.update(draft_id, draft_text=text, status="edited", image_url=image_url)
         result = "Draft saved."
     body = f"""
     <h1>{escape(result)}</h1>
@@ -476,7 +495,7 @@ def edit(url: str):
     store.ingest_items([item])
     draft_id = draft_id_for_url(item.url)
     stored = store.get(draft_id)
-    draft = stored.draft_text if stored else build_post(item, use_ai=True)
+    draft = stored.telegram_text if stored else build_post(item, use_ai=True)
     date = item.published_at.date().isoformat() if item.published_at else "no-date"
     body = f"""
     <div class="top"><div><h1>Редактор</h1><p class="muted">{escape(item.source)} | {escape(date)} | {escape(item.category)} | {escape(item.importance)}</p></div><a class="button secondary" href="/check">Назад</a></div>
