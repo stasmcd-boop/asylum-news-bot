@@ -8,8 +8,10 @@ from app.bot_runner import build_daily_summary_text, build_post, collect_new_ite
 from app.config import settings
 from app.dashboard import dashboard_stats, importance_class
 from app.local_state import LocalState
+from app.source_registry import enabled_sources
 from app.sources import fetch_all_sources
 from app.telegram_client import TelegramClient
+from app.version import APP_VERSION, RELEASE_NOTES
 
 app = FastAPI(title="Asylum Intelligence")
 
@@ -20,6 +22,7 @@ def page(title: str, body: str, active: str = "dashboard") -> str:
         ("drafts", "/check", "Черновики"),
         ("published", "/published", "Опубликовано"),
         ("sources", "/sources", "Источники"),
+        ("collector", "/collector", "Collector 2.0"),
         ("summary", "/daily-summary", "Daily summary"),
         ("health", "/health", "Health"),
     ]
@@ -73,7 +76,7 @@ def page(title: str, body: str, active: str = "dashboard") -> str:
   <div class="layout">
     <aside>
       <div class="brand">Asylum Intelligence</div>
-      <div class="tagline">Immigration monitoring CMS</div>
+      <div class="tagline">{escape(APP_VERSION)}</div>
       {nav}
     </aside>
     <main>{body}</main>
@@ -95,23 +98,29 @@ def home():
     stats = dashboard_stats()
     source_rows = "".join(f'<span class="pill">{escape(name)}: {count}</span>' for name, count in stats["sources"].most_common(8)) or '<span class="muted">Нет данных</span>'
     category_rows = "".join(f'<span class="pill">{escape(name)}: {count}</span>' for name, count in stats["categories"].most_common(8)) or '<span class="muted">Нет данных</span>'
+    release_rows = "".join(f'<li>{escape(note)}</li>' for note in stats["release_notes"])
     body = f"""
     <div class="top">
       <div>
         <h1>Dashboard</h1>
-        <p class="muted">Последнее обновление: {escape(stats['generated_at'])}</p>
+        <p class="muted">Версия: <b>{escape(stats['version'])}</b> · Последнее обновление: {escape(stats['generated_at'])}</p>
       </div>
       <div>
         <a class="button" href="/check">Открыть черновики</a>
-        <a class="button secondary" href="/api/pending">API pending</a>
+        <a class="button secondary" href="/collector">Collector status</a>
       </div>
     </div>
 
+    <div class="card">
+      <h2>Что изменилось в последнем релизе</h2>
+      <ul>{release_rows}</ul>
+    </div>
+
     <div class="grid">
+      <div class="card"><div class="muted">Подключено источников</div><div class="metric">{stats['registered_sources_count']}</div></div>
       <div class="card"><div class="muted">Всего найдено</div><div class="metric">{stats['total_found']}</div></div>
       <div class="card"><div class="muted">Свежие 60 дней</div><div class="metric">{stats['fresh_60']}</div></div>
       <div class="card"><div class="muted">Ожидают проверки</div><div class="metric">{stats['pending']}</div></div>
-      <div class="card"><div class="muted">Опубликовано локально</div><div class="metric">{stats['published_local']}</div></div>
     </div>
 
     <div class="grid">
@@ -120,14 +129,8 @@ def home():
         <p><span class="pill {'success' if stats['telegram_online'] else 'danger'}">Telegram {'online' if stats['telegram_online'] else 'not configured'}</span></p>
         <p><span class="pill {'warning' if stats['openai_configured'] else 'danger'}">OpenAI {'configured' if stats['openai_configured'] else 'not configured'}</span></p>
       </div>
-      <div class="card">
-        <h2>Источники</h2>
-        {source_rows}
-      </div>
-      <div class="card">
-        <h2>Категории</h2>
-        {category_rows}
-      </div>
+      <div class="card"><h2>Источники с найденными материалами</h2>{source_rows}</div>
+      <div class="card"><h2>Категории</h2>{category_rows}</div>
     </div>
     """
     return page("Dashboard", body, active="dashboard")
@@ -137,9 +140,30 @@ def home():
 def health():
     return {
         "ok": True,
+        "version": APP_VERSION,
         "telegram_configured": bool(settings.telegram_bot_token and settings.telegram_channel),
         "openai_configured": bool(settings.openai_api_key and not settings.openai_api_key.startswith("paste_")),
+        "sources_count": len(enabled_sources()),
     }
+
+
+@app.get("/collector", response_class=HTMLResponse)
+def collector():
+    stats = dashboard_stats()
+    rows = []
+    for source in stats["registered_sources"]:
+        found = stats["sources"].get(source.name, 0)
+        fresh = stats["fresh_sources"].get(source.name, 0)
+        rows.append(f"""
+        <div class="card">
+          <h2>{escape(source.name)}</h2>
+          <p><span class="pill">type: {escape(source.type)}</span><span class="pill">priority: {source.priority}</span><span class="pill">group: {escape(source.group)}</span></p>
+          <p>Всего найдено: <b>{found}</b> · Свежие 60 дней: <b>{fresh}</b></p>
+          <p class="muted">{escape(source.url or 'Federal Register API')}</p>
+        </div>
+        """)
+    body = f"<h1>Collector 2.0</h1><p class='muted'>Версия: {escape(APP_VERSION)}</p>" + "".join(rows)
+    return page("Collector", body, active="collector")
 
 
 @app.get("/api/news")
@@ -183,26 +207,10 @@ def edit(url: str):
     body = f"""
     <div class="top"><div><h1>Редактор</h1><p class="muted">{escape(item.source)} | {escape(date)} | {escape(item.category)} | {escape(item.importance)}</p></div><a class="button secondary" href="/check">Назад</a></div>
     <div class="grid">
-      <div class="card">
-        <h2>Источник</h2>
-        <p>{escape(item.title)}</p>
-        <p><a href="{escape(item.url)}" target="_blank">Открыть оригинал</a></p>
-        <pre>{escape((item.summary or 'Краткое описание отсутствует')[:1200])}</pre>
-      </div>
-      <div class="card">
-        <h2>Предпросмотр Telegram</h2>
-        <pre>{escape(draft)}</pre>
-      </div>
+      <div class="card"><h2>Источник</h2><p>{escape(item.title)}</p><p><a href="{escape(item.url)}" target="_blank">Открыть оригинал</a></p><pre>{escape((item.summary or 'Краткое описание отсутствует')[:1200])}</pre></div>
+      <div class="card"><h2>Предпросмотр Telegram</h2><pre>{escape(draft)}</pre></div>
     </div>
-    <div class="card">
-      <h2>Пост</h2>
-      <form method="post" action="/send-edited">
-        <input type="hidden" name="url" value="{escape(item.url)}">
-        <textarea name="text">{escape(draft)}</textarea>
-        <br>
-        <button class="warn" type="submit">Опубликовать в Telegram</button>
-      </form>
-    </div>
+    <div class="card"><h2>Пост</h2><form method="post" action="/send-edited"><input type="hidden" name="url" value="{escape(item.url)}"><textarea name="text">{escape(draft)}</textarea><br><button class="warn" type="submit">Опубликовать в Telegram</button></form></div>
     """
     return page("Редактор", body, active="drafts")
 
@@ -230,7 +238,7 @@ def published():
 @app.get("/sources", response_class=HTMLResponse)
 def sources():
     stats = dashboard_stats()
-    rows = "".join(f"<div class='card'><h2>{escape(name)}</h2><p class='muted'>Свежих материалов: {count}</p></div>" for name, count in stats["sources"].most_common()) or "<div class='card'>Нет данных по источникам.</div>"
+    rows = "".join(f"<div class='card'><h2>{escape(name)}</h2><p class='muted'>Найдено материалов: {count}</p></div>" for name, count in stats["sources"].most_common()) or "<div class='card'>Нет данных по источникам.</div>"
     return page("Источники", f"<h1>Источники</h1>{rows}", active="sources")
 
 
