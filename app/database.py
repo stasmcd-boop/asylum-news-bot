@@ -8,20 +8,30 @@ from app.models import NewsItem
 class Database:
     def __init__(self) -> None:
         self.client: Optional[Client] = None
+        self.error: Optional[str] = None
         if settings.supabase_url and settings.supabase_service_key:
-            self.client = create_client(settings.supabase_url, settings.supabase_service_key)
+            try:
+                self.client = create_client(settings.supabase_url, settings.supabase_service_key)
+            except Exception as exc:
+                self.error = f"Supabase disabled: {exc}"
+                self.client = None
 
     def enabled(self) -> bool:
-        return self.client is not None
+        return self.client is not None and self.error is None
 
     def news_exists(self, url: str) -> bool:
-        if not self.client:
+        if not self.enabled():
             return False
-        result = self.client.table("news_items").select("id").eq("url", url).limit(1).execute()
-        return bool(result.data)
+        try:
+            result = self.client.table("news_items").select("id").eq("url", url).limit(1).execute()
+            return bool(result.data)
+        except Exception as exc:
+            self.error = f"Supabase query failed: {exc}"
+            self.client = None
+            return False
 
     def save_news(self, item: NewsItem, status: str = "collected") -> None:
-        if not self.client:
+        if not self.enabled():
             return
         payload = {
             "source": item.source,
@@ -36,4 +46,8 @@ class Database:
             "image_prompt": None,
             "status": status,
         }
-        self.client.table("news_items").upsert(payload, on_conflict="url").execute()
+        try:
+            self.client.table("news_items").upsert(payload, on_conflict="url").execute()
+        except Exception as exc:
+            self.error = f"Supabase save failed: {exc}"
+            self.client = None
