@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from app.ai_editor import AIEditor
@@ -13,8 +13,22 @@ def sort_items(items: List[NewsItem]) -> List[NewsItem]:
     priority = {"important": 0, "medium": 1, "info": 2}
     return sorted(
         items,
-        key=lambda x: (priority.get(x.importance, 9), x.published_at or datetime.min),
+        key=lambda x: (priority.get(x.importance, 9), -(x.published_at.timestamp() if x.published_at else 0)),
     )
+
+
+def fresh_items(items: List[NewsItem], days: int = 60) -> List[NewsItem]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = []
+    for item in items:
+        if not item.published_at:
+            continue
+        published = item.published_at
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        if published >= cutoff:
+            result.append(item)
+    return result
 
 
 def build_post(item: NewsItem, use_ai: bool = True) -> str:
@@ -26,16 +40,16 @@ def build_post(item: NewsItem, use_ai: bool = True) -> str:
     return build_offline_post(item)
 
 
-def collect_new_items(limit: int = 3) -> List[NewsItem]:
+def collect_new_items(limit: int = 3, days: int = 60) -> List[NewsItem]:
     state = LocalState()
-    items = sort_items(fetch_all_sources())
+    items = sort_items(fresh_items(fetch_all_sources(), days=days))
     return [item for item in items if not state.is_published(item.url)][:limit]
 
 
-def publish_new_items(bot_token: str, channel: str, limit: int = 1, use_ai: bool = True) -> int:
+def publish_new_items(bot_token: str, channel: str, limit: int = 1, use_ai: bool = True, days: int = 60) -> int:
     state = LocalState()
     client = TelegramClient(bot_token, channel)
-    items = collect_new_items(limit=limit)
+    items = collect_new_items(limit=limit, days=days)
 
     published = 0
     for item in items:
@@ -50,12 +64,15 @@ def publish_new_items(bot_token: str, channel: str, limit: int = 1, use_ai: bool
     return published
 
 
-def build_daily_summary_text() -> str:
-    items = sort_items(fetch_all_sources())[:10]
+def build_daily_summary_text(days: int = 1) -> str:
+    items = sort_items(fresh_items(fetch_all_sources(), days=days))[:10]
+    today = datetime.now().strftime("%Y-%m-%d")
     if not items:
-        return "📌 <b>Daily summary</b>\n\nСегодня релевантных обновлений не найдено."
+        return f"📌 <b>Daily summary: {today}</b>\n\nСегодня свежих релевантных обновлений не найдено."
 
-    lines = ["📌 <b>Daily summary: immigration news USA</b>", ""]
+    lines = [f"📌 <b>Daily summary: {today}</b>", ""]
+    lines.append(f"Найдено свежих материалов: {len(items)}")
+    lines.append("")
     for idx, item in enumerate(items, 1):
         date = item.published_at.date().isoformat() if item.published_at else "no-date"
         lines.append(f"{idx}. <b>{item.title}</b>")
