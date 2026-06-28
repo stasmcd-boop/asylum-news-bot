@@ -5,6 +5,7 @@ from app.ai_editor import AIEditor
 from app.local_state import LocalState
 from app.models import NewsItem
 from app.offline_editor import build_offline_post
+from app.source_registry import source_fresh_days, source_priority
 from app.sources import fetch_all_sources
 from app.telegram_client import TelegramClient
 
@@ -13,19 +14,25 @@ def sort_items(items: List[NewsItem]) -> List[NewsItem]:
     priority = {"important": 0, "medium": 1, "info": 2}
     return sorted(
         items,
-        key=lambda x: (priority.get(x.importance, 9), -(x.published_at.timestamp() if x.published_at else 0)),
+        key=lambda x: (
+            priority.get(x.importance, 9),
+            -source_priority(x.source),
+            -(x.published_at.timestamp() if x.published_at else 0),
+        ),
     )
 
 
 def fresh_items(items: List[NewsItem], days: int = 60) -> List[NewsItem]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     result = []
+    now = datetime.now(timezone.utc)
     for item in items:
         if not item.published_at:
             continue
         published = item.published_at
         if published.tzinfo is None:
             published = published.replace(tzinfo=timezone.utc)
+        source_days = min(days, source_fresh_days(item.source))
+        cutoff = now - timedelta(days=source_days)
         if published >= cutoff:
             result.append(item)
     return result
