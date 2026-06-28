@@ -12,8 +12,10 @@ from app.filters import detect_category, detect_importance, is_relevant
 from app.intelligence import analyze_item, detect_deadline, determine_urgency
 from app.local_state import LocalState
 from app.models import NewsItem
+from app.newsroom import dashboard_stats, related_drafts, search_drafts, timeline_for_category
 from app.search import filter_items, matches_query
 from app.sources import _parse_page_date, deduplicate_items, rank_items
+from web_app import ensure_publishable_text
 
 
 def offline_editorial_builder(item, _extracted_text, analysis):
@@ -180,6 +182,12 @@ class IntelligenceTests(unittest.TestCase):
         self.assertTrue(analysis.action_required)
         self.assertGreaterEqual(analysis.impact_score, 75)
         self.assertEqual(analysis.deadline, "2026-07-15")
+        self.assertTrue(analysis.not_affected_groups)
+        self.assertTrue(analysis.new_rule_ru)
+        self.assertTrue(analysis.possible_consequences_ru)
+
+    def test_detects_ice_category(self):
+        self.assertEqual(detect_category("ICE announces enforcement update", ""), "ice")
 
 
 class DraftStoreTests(unittest.TestCase):
@@ -249,6 +257,54 @@ class TelegramPostTests(unittest.TestCase):
         self.assertIn("https://example.com/source", post)
         self.assertIn("Информационный пост, не юридическая консультация.", post)
         self.assertNotIn("OpenAI", post)
+
+    def test_ensure_publishable_text_adds_source_and_disclaimer(self):
+        text = ensure_publishable_text("Короткий пост", "https://example.com/source")
+
+        self.assertIn("https://example.com/source", text)
+        self.assertIn("Информационный пост, не юридическая консультация.", text)
+
+
+class NewsroomHelperTests(unittest.TestCase):
+    def make_draft(self, draft_id, category="tps", status="draft_ready", source="USCIS"):
+        from app.draft_store import DraftRecord
+
+        return DraftRecord(
+            id=draft_id,
+            source=source,
+            title=f"{category} update",
+            url=f"https://example.com/{draft_id}",
+            status=status,
+            category=category,
+            importance="important",
+            analysis={"urgency": "high", "impact_score": 90},
+            telegram_text="text",
+            collected_at="2026-06-28T00:00:00Z",
+            updated_at="2026-06-28T00:00:00Z",
+            russian_summary=f"Summary about {category}",
+            russian_explanation="Explanation",
+            affected_groups=[f"люди с {category.upper()}"],
+            urgency="high",
+            impact_score=90,
+            tags=[category, "high", source.lower()],
+        )
+
+    def test_search_related_and_timeline_helpers(self):
+        current = self.make_draft("a", category="tps")
+        related = self.make_draft("b", category="tps")
+        other = self.make_draft("c", category="ead", source="Other")
+
+        self.assertEqual(search_drafts([current, other], "summary tps"), [current])
+        self.assertEqual(related_drafts(current, [current, related, other], limit=1), [related])
+        self.assertEqual(timeline_for_category([other, related, current], "tps"), [related, current])
+
+    def test_dashboard_stats_counts_workflow(self):
+        draft = self.make_draft("a")
+        stats = dashboard_stats([draft], [type("D", (), {"ok": True})()])
+
+        self.assertEqual(stats["important_news"], 1)
+        self.assertEqual(stats["awaiting_review"], 1)
+        self.assertEqual(stats["collector_health"], "1/1")
 
 
 class SearchTests(unittest.TestCase):

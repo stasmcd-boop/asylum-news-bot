@@ -31,6 +31,8 @@ CATEGORY_RULES = {
     "parole": ["humanitarian parole", "parole"],
     "deportation": ["deportation", "removal"],
     "border": ["border", "cbp", "migrant"],
+    "ice": ["ice", "immigration and customs enforcement", "enforcement and removal operations"],
+    "cbp": ["cbp", "customs and border protection", "border patrol"],
     "policy": ["policy manual", "rule", "executive order", "federal register", "alien registration"],
 }
 

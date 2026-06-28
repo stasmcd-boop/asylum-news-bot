@@ -41,9 +41,16 @@ class DraftRecord:
     russian_summary: str = ""
     russian_explanation: str = ""
     affected_groups: List[str] = field(default_factory=list)
+    not_affected_groups: List[str] = field(default_factory=list)
     urgency: str = ""
     impact_score: int = 0
+    confidence: str = "medium"
+    deadline: str = ""
+    effective_date: str = ""
     recommended_action: str = ""
+    previous_rule: str = ""
+    new_rule: str = ""
+    possible_consequences: str = ""
     image_url: str = ""
     created_at: str = ""
     updated_at: str = ""
@@ -79,9 +86,16 @@ class DraftRecord:
             russian_summary=russian_summary,
             russian_explanation=russian_explanation,
             affected_groups=analysis.affected_groups,
+            not_affected_groups=analysis.not_affected_groups,
             urgency=analysis.urgency,
             impact_score=analysis.impact_score,
+            confidence=analysis.confidence,
+            deadline=analysis.deadline,
+            effective_date=analysis.effective_date,
             recommended_action=analysis.recommended_action,
+            previous_rule=analysis.previous_rules_ru,
+            new_rule=analysis.new_rule_ru,
+            possible_consequences=analysis.possible_consequences_ru,
             image_url=content.image_url,
             created_at=now,
             updated_at=now,
@@ -107,9 +121,16 @@ class DraftRecord:
             russian_summary=data.get("russian_summary") or data.get("analysis", {}).get("plain_russian_summary", ""),
             russian_explanation=data.get("russian_explanation") or data.get("analysis", {}).get("previous_rules_ru", ""),
             affected_groups=list(data.get("affected_groups") or data.get("analysis", {}).get("affected_groups", [])),
+            not_affected_groups=list(data.get("not_affected_groups") or data.get("analysis", {}).get("not_affected_groups", [])),
             urgency=data.get("urgency") or data.get("analysis", {}).get("urgency", ""),
             impact_score=int(data.get("impact_score") or data.get("analysis", {}).get("impact_score", 0)),
+            confidence=data.get("confidence") or data.get("analysis", {}).get("confidence", "medium"),
+            deadline=data.get("deadline") or data.get("analysis", {}).get("deadline", ""),
+            effective_date=data.get("effective_date") or data.get("analysis", {}).get("effective_date", ""),
             recommended_action=data.get("recommended_action") or data.get("analysis", {}).get("recommended_action", ""),
+            previous_rule=data.get("previous_rule") or data.get("analysis", {}).get("previous_rules_ru", ""),
+            new_rule=data.get("new_rule") or data.get("analysis", {}).get("new_rule_ru", ""),
+            possible_consequences=data.get("possible_consequences") or data.get("analysis", {}).get("possible_consequences_ru", ""),
             image_url=data.get("image_url", ""),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
@@ -133,9 +154,16 @@ class DraftRecord:
             "russian_summary": self.russian_summary,
             "russian_explanation": self.russian_explanation,
             "affected_groups": self.affected_groups,
+            "not_affected_groups": self.not_affected_groups,
             "urgency": self.urgency,
             "impact_score": self.impact_score,
+            "confidence": self.confidence,
+            "deadline": self.deadline,
+            "effective_date": self.effective_date,
             "recommended_action": self.recommended_action,
+            "previous_rule": self.previous_rule,
+            "new_rule": self.new_rule,
+            "possible_consequences": self.possible_consequences,
             "image_url": self.image_url,
             "telegram_text": self.telegram_text,
             "created_at": self.created_at,
@@ -191,9 +219,16 @@ class DraftStore:
                     draft.russian_summary = draft.russian_summary or russian_summary
                     draft.russian_explanation = draft.russian_explanation or russian_explanation
                     draft.affected_groups = draft.affected_groups or analysis.affected_groups
+                    draft.not_affected_groups = draft.not_affected_groups or analysis.not_affected_groups
                     draft.urgency = draft.urgency or analysis.urgency
                     draft.impact_score = draft.impact_score or analysis.impact_score
+                    draft.confidence = draft.confidence or analysis.confidence
+                    draft.deadline = draft.deadline or analysis.deadline
+                    draft.effective_date = draft.effective_date or analysis.effective_date
                     draft.recommended_action = draft.recommended_action or analysis.recommended_action
+                    draft.previous_rule = draft.previous_rule or analysis.previous_rules_ru
+                    draft.new_rule = draft.new_rule or analysis.new_rule_ru
+                    draft.possible_consequences = draft.possible_consequences or analysis.possible_consequences_ru
                     draft.image_url = draft.image_url or content.image_url
                     draft.tags = draft.tags or analysis.tags
                     draft.updated_at = utc_now_iso()
