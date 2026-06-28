@@ -44,6 +44,7 @@ def build_offline_post(item: NewsItem) -> str:
     analysis = analyze_item(item)
     affected = "\n".join(f"• {escape(group)}" for group in analysis.affected_groups)
     actions = "\n".join(f"• {escape(step)}" for step in analysis.action_steps_ru)
+    deadline = escape(analysis.deadline or "не обнаружен автоматически")
 
     post = f"""{label}
 <b>{escape(title)}</b>
@@ -51,6 +52,7 @@ def build_offline_post(item: NewsItem) -> str:
 <b>Что произошло</b>
 Опубликован официальный документ: <b>{original}</b>.
 Источник: {source}. Дата публикации: {escape(date)}.
+Оценка влияния: <b>{analysis.impact_score}/100</b>. Срочность: <b>{escape(analysis.urgency)}</b>.
 
 <b>Кого может касаться</b>
 {affected}
@@ -61,11 +63,17 @@ def build_offline_post(item: NewsItem) -> str:
 <b>Сравнение с прежними правилами</b>
 {escape(analysis.previous_rules_ru)}
 
+<b>Дедлайн</b>
+{deadline}
+
+<b>Рекомендованное действие</b>
+{escape(analysis.recommended_action)}
+
 <b>Что делать сейчас</b>
 {actions}
 
 <b>Официальный источник</b>
 {url}
 
-Это информационный пост, не юридическая консультация."""
+Информационный пост, не юридическая консультация."""
     return post[:3900]

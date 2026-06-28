@@ -5,8 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.bot_runner import fresh_items, sort_items
+from app.draft_store import DraftStore
 from app.filters import detect_category, detect_importance, is_relevant
-from app.intelligence import analyze_item, determine_urgency
+from app.intelligence import analyze_item, detect_deadline, determine_urgency
 from app.local_state import LocalState
 from app.models import NewsItem
 from app.search import filter_items, matches_query
@@ -138,6 +139,59 @@ class IntelligenceTests(unittest.TestCase):
         self.assertIn("люди с TPS", analysis.affected_groups)
         self.assertIn("tps", analysis.tags)
         self.assertEqual(analysis.confidence, "medium")
+
+    def test_analysis_detects_deadline_and_scores_impact(self):
+        item = NewsItem(
+            source="USCIS News",
+            title="USCIS announces asylum filing deadline by July 15, 2026",
+            url="https://example.com/asylum-deadline",
+            category="asylum",
+            importance="medium",
+            summary="Applications must be filed by July 15, 2026.",
+        )
+
+        analysis = analyze_item(item)
+
+        self.assertEqual(detect_deadline(item), "2026-07-15")
+        self.assertEqual(analysis.urgency, "high")
+        self.assertTrue(analysis.action_required)
+        self.assertGreaterEqual(analysis.impact_score, 75)
+        self.assertEqual(analysis.deadline, "2026-07-15")
+
+
+class DraftStoreTests(unittest.TestCase):
+    def test_ingest_items_persists_structured_draft(self):
+        with TemporaryDirectory() as tmp:
+            store = DraftStore(Path(tmp))
+            item = NewsItem(
+                source="USCIS News",
+                title="DHS extends Temporary Protected Status",
+                url="https://example.com/tps-draft",
+                category="tps",
+                importance="important",
+                summary="TPS extended for eligible nationals.",
+            )
+
+            drafts = store.ingest_items([item])
+            saved = store.list_drafts(status="draft_ready")
+
+            self.assertEqual(len(drafts), 1)
+            self.assertEqual(len(saved), 1)
+            self.assertEqual(saved[0].status, "draft_ready")
+            self.assertIn("impact_score", saved[0].analysis)
+            self.assertIn("Информационный пост, не юридическая консультация.", saved[0].draft_text)
+
+    def test_update_changes_status_and_text(self):
+        with TemporaryDirectory() as tmp:
+            store = DraftStore(Path(tmp))
+            item = NewsItem(source="USCIS", title="EAD update", url="https://example.com/ead-draft", category="ead")
+            draft = store.ingest_items([item])[0]
+
+            updated = store.update(draft.id, draft_text="new text", status="ignored")
+
+            self.assertIsNotNone(updated)
+            self.assertEqual(store.get(draft.id).status, "ignored")
+            self.assertEqual(store.get(draft.id).draft_text, "new text")
 
 
 class SearchTests(unittest.TestCase):

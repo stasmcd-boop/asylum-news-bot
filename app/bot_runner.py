@@ -3,6 +3,7 @@ from typing import List
 
 from app.ai_editor import AIEditor
 from app.config import settings
+from app.draft_store import DraftStore, draft_id_for_url
 from app.local_state import LocalState
 from app.models import NewsItem
 from app.offline_editor import build_offline_post
@@ -48,14 +49,20 @@ def collect_new_items(limit: int = 3, days: int = 60) -> List[NewsItem]:
 
 def publish_new_items(bot_token: str, channel: str, limit: int = 1, use_ai: bool = True, days: int = 60) -> int:
     state = LocalState()
+    store = DraftStore()
     client = TelegramClient(bot_token, channel)
     items = collect_new_items(limit=limit, days=days)
+    store.ingest_items(items)
 
     published = 0
     for item in items:
-        post = build_post(item, use_ai=use_ai)
+        draft = store.get(draft_id_for_url(item.url))
+        if draft and draft.status in {"published", "ignored"}:
+            continue
+        post = draft.draft_text if draft else build_post(item, use_ai=use_ai)
         client.send_message(post)
         state.mark_published(item.url)
+        store.update_by_url(item.url, draft_text=post, status="published")
         published += 1
         print(f"Published: {item.title}")
 

@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from app.bot_runner import build_daily_summary_text, build_post, collect_new_items, publish_new_items
 from app.config import settings
 from app.dashboard import dashboard_stats, importance_class
+from app.draft_store import DraftStore, draft_id_for_url
 from app.intelligence import analyze_item
 from app.local_state import LocalState
 from app.source_registry import enabled_sources
@@ -174,6 +175,58 @@ def filter_controls(query: str = "", category: str = "", importance: str = "", u
     """
 
 
+def draft_filter_controls(query: str = "", category: str = "", urgency: str = "", source: str = "", status: str = "") -> str:
+    def selected(value: str, current: str) -> str:
+        return "selected" if value == current else ""
+
+    return f"""
+    <div class="card">
+      <form method="get">
+        <div class="grid">
+          <label>Search
+            <input name="q" value="{escape(query)}" placeholder="title, source, tag">
+          </label>
+          <label>Source
+            <input name="source" value="{escape(source)}" placeholder="USCIS, Federal Register">
+          </label>
+          <label>Category
+            <select name="category">
+              <option value="">All</option>
+              <option value="asylum" {selected("asylum", category)}>Asylum</option>
+              <option value="court" {selected("court", category)}>Court</option>
+              <option value="ead" {selected("ead", category)}>EAD</option>
+              <option value="tps" {selected("tps", category)}>TPS</option>
+              <option value="parole" {selected("parole", category)}>Parole</option>
+              <option value="deportation" {selected("deportation", category)}>Deportation</option>
+              <option value="policy" {selected("policy", category)}>Policy</option>
+            </select>
+          </label>
+          <label>Urgency
+            <select name="urgency">
+              <option value="">All</option>
+              <option value="high" {selected("high", urgency)}>High</option>
+              <option value="medium" {selected("medium", urgency)}>Medium</option>
+              <option value="low" {selected("low", urgency)}>Low</option>
+            </select>
+          </label>
+          <label>Status
+            <select name="status">
+              <option value="">All</option>
+              <option value="collected" {selected("collected", status)}>Collected</option>
+              <option value="analyzed" {selected("analyzed", status)}>Analyzed</option>
+              <option value="draft_ready" {selected("draft_ready", status)}>Draft ready</option>
+              <option value="published" {selected("published", status)}>Published</option>
+              <option value="ignored" {selected("ignored", status)}>Ignored</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit">Apply filters</button>
+        <a class="button secondary" href="/drafts">Reset</a>
+      </form>
+    </div>
+    """
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     stats = dashboard_stats()
@@ -188,6 +241,7 @@ def home():
       </div>
       <div>
         <a class="button" href="/check">Открыть черновики</a>
+        <a class="button" href="/drafts">Draft queue</a>
         <a class="button secondary" href="/collector">Collector status</a>
       </div>
     </div>
@@ -293,6 +347,94 @@ def diagnostics():
     return page("Collector diagnostics", body)
 
 
+@app.get("/drafts", response_class=HTMLResponse)
+def drafts(q: str = "", category: str = "", urgency: str = "", source: str = "", status: str = ""):
+    store = DraftStore()
+    store.ingest_items(collect_sources().items)
+    rows = []
+    for draft in store.list_drafts(query=q, category=category, urgency=urgency, source=source, status=status):
+        analysis = draft.analysis
+        rows.append(f"""
+        <div class="card">
+          <h3>{escape(draft.title)}</h3>
+          <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.status)} | urgency: {escape(analysis.get("urgency", ""))} | impact: {analysis.get("impact_score", 0)}</p>
+          <p class="muted">Tags: {escape(", ".join(draft.tags))}</p>
+          <a class="button" href="/drafts/{escape(draft.id)}">Open draft</a>
+          <a class="button secondary" href="{escape(draft.url)}" target="_blank">Source</a>
+        </div>
+        """)
+    body = "<h1>Draft queue</h1><a class='button secondary' href='/'>Назад</a>" + draft_filter_controls(q, category, urgency, source, status)
+    body += "".join(rows) or "<div class='card'><p>No drafts match these filters.</p></div>"
+    return page("Draft queue", body)
+
+
+@app.get("/drafts/{draft_id}", response_class=HTMLResponse)
+def draft_detail(draft_id: str):
+    draft = DraftStore().get(draft_id)
+    if not draft:
+        return page("Draft not found", "<h1>Draft not found</h1><a class='button secondary' href='/drafts'>Back</a>")
+    analysis = draft.analysis
+    affected = "".join(f"<li>{escape(group)}</li>" for group in analysis.get("affected_groups", []))
+    actions = "".join(f"<li>{escape(step)}</li>" for step in analysis.get("action_steps_ru", []))
+    body = f"""
+    <h1>Draft details</h1>
+    <a class="button secondary" href="/drafts">Back to queue</a>
+    <a class="button secondary" href="{escape(draft.url)}" target="_blank">Open source</a>
+    <div class="card">
+      <h2>{escape(draft.title)}</h2>
+      <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.status)}</p>
+      <p><b>Urgency:</b> {escape(analysis.get("urgency", ""))} | <b>Impact:</b> {analysis.get("impact_score", 0)} | <b>Deadline:</b> {escape(analysis.get("deadline", "") or "none")}</p>
+      <p><b>Action required:</b> {escape(str(analysis.get("action_required", False)))}</p>
+      <p><b>Summary:</b> {escape(analysis.get("plain_russian_summary", ""))}</p>
+      <p><b>Recommended action:</b> {escape(analysis.get("recommended_action", ""))}</p>
+      <p><b>Affected groups</b></p>
+      <ul>{affected}</ul>
+      <p><b>Action steps</b></p>
+      <ul>{actions}</ul>
+    </div>
+    <div class="card">
+      <h2>Draft preview</h2>
+      <form method="post" action="/drafts/{escape(draft.id)}">
+        <textarea name="text">{escape(draft.draft_text)}</textarea>
+        <br>
+        <button type="submit" name="action" value="save">Save draft</button>
+        <button class="warn" type="submit" name="action" value="publish">Publish to Telegram</button>
+        <button type="submit" name="action" value="ignore">Ignore</button>
+      </form>
+    </div>
+    """
+    return page("Draft details", body)
+
+
+@app.post("/drafts/{draft_id}", response_class=HTMLResponse)
+def update_draft(draft_id: str, text: str = Form(...), action: str = Form(...)):
+    store = DraftStore()
+    if action == "publish":
+        if not settings.telegram_bot_token or not settings.telegram_channel:
+            result = "Telegram не настроен. Проверь .env."
+            store.update(draft_id, draft_text=text)
+        else:
+            draft = store.update(draft_id, draft_text=text)
+            if not draft:
+                return page("Draft not found", "<h1>Draft not found</h1><a class='button secondary' href='/drafts'>Back</a>")
+            TelegramClient(settings.telegram_bot_token, settings.telegram_channel).send_message(text[:3900])
+            LocalState().mark_published(draft.url)
+            store.update(draft_id, draft_text=text, status="published")
+            result = "Draft published to Telegram."
+    elif action == "ignore":
+        store.update(draft_id, draft_text=text, status="ignored")
+        result = "Draft marked as ignored."
+    else:
+        store.update(draft_id, draft_text=text, status="draft_ready")
+        result = "Draft saved."
+    body = f"""
+    <h1>{escape(result)}</h1>
+    <a class="button" href="/drafts/{escape(draft_id)}">Back to draft</a>
+    <a class="button secondary" href="/drafts">Draft queue</a>
+    """
+    return page("Draft updated", body)
+
+
 @app.get("/check", response_class=HTMLResponse)
 def check(q: str = "", category: str = "", importance: str = "", urgency: str = ""):
     items = filter_items(
@@ -330,10 +472,15 @@ def edit(url: str):
     item = find_item_by_url(url)
     if not item:
         return page("Not found", "<h1>Материал не найден</h1><a class='button secondary' href='/check'>Назад</a>", active="drafts")
-    draft = build_post(item, use_ai=True)
+    store = DraftStore()
+    store.ingest_items([item])
+    draft_id = draft_id_for_url(item.url)
+    stored = store.get(draft_id)
+    draft = stored.draft_text if stored else build_post(item, use_ai=True)
     date = item.published_at.date().isoformat() if item.published_at else "no-date"
     body = f"""
     <div class="top"><div><h1>Редактор</h1><p class="muted">{escape(item.source)} | {escape(date)} | {escape(item.category)} | {escape(item.importance)}</p></div><a class="button secondary" href="/check">Назад</a></div>
+    <a class="button secondary" href="/drafts/{escape(draft_id)}">Открыть в Draft queue</a>
     <div class="grid">
       <div class="card"><h2>Источник</h2><p>{escape(item.title)}</p><p><a href="{escape(item.url)}" target="_blank">Открыть оригинал</a></p><pre>{escape((item.summary or 'Краткое описание отсутствует')[:1200])}</pre></div>
       <div class="card"><h2>Предпросмотр Telegram</h2><pre>{escape(draft)}</pre></div>
@@ -351,6 +498,7 @@ def send_edited(url: str = Form(...), text: str = Form(...)):
         client = TelegramClient(settings.telegram_bot_token, settings.telegram_channel)
         client.send_message(text[:3900])
         LocalState().mark_published(url)
+        DraftStore().update_by_url(url, draft_text=text, status="published")
         result = "Пост отправлен в Telegram и помечен как опубликованный."
     body = f"<h1>Готово</h1><a class='button' href='/check'>К черновикам</a><a class='button secondary' href='/'>Dashboard</a><div class='card'><pre>{escape(result)}</pre></div>"
     return page("Sent", body, active="drafts")
@@ -372,6 +520,21 @@ def sources():
 
 @app.get("/publish-offline", response_class=HTMLResponse)
 def publish_offline():
+    body = """
+    <h1>Публикация без редактирования</h1>
+    <a class="button secondary" href="/">Назад</a>
+    <div class="card">
+      <p>Будет опубликован один свежий материал из очереди. Автоматическая публикация без подтверждения отключена.</p>
+      <form method="post" action="/publish-offline">
+        <button class="warn" type="submit">Подтвердить публикацию в Telegram</button>
+      </form>
+    </div>
+    """
+    return page("Publish offline", body)
+
+
+@app.post("/publish-offline", response_class=HTMLResponse)
+def publish_offline_confirmed():
     if not settings.telegram_bot_token or not settings.telegram_channel:
         result = "Telegram не настроен."
     else:
