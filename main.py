@@ -1,9 +1,9 @@
 import argparse
 from datetime import datetime
 
+from app.ai_editor import AIEditor
 from app.config import settings
 from app.database import Database
-from app.post_builder import build_basic_post
 from app.sources import fetch_all_sources
 from app.telegram_client import TelegramClient
 
@@ -56,9 +56,14 @@ def publish_latest() -> None:
     priority = {"important": 0, "medium": 1, "info": 2}
     items.sort(key=lambda x: (priority.get(x.importance, 9), x.published_at or datetime.min))
     item = items[0]
+
+    editor = AIEditor()
+    post = editor.build_post(item)
+
     client = TelegramClient(settings.telegram_bot_token, settings.telegram_channel)
-    result = client.send_message(build_basic_post(item))
+    result = client.send_message(post)
     print("Published:", item.title)
+    print("AI enabled:", editor.enabled)
     print("Telegram response:", result)
 
 
