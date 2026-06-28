@@ -14,6 +14,7 @@ from app.local_state import LocalState
 from app.models import NewsItem
 from app.newsroom import dashboard_stats, related_drafts, search_drafts, timeline_for_category
 from app.search import filter_items, matches_query
+from app.source_registry import parse_additional_sources
 from app.sources import _parse_page_date, deduplicate_items, rank_items
 from web_app import ensure_publishable_text
 
@@ -64,6 +65,18 @@ class BotRunnerTests(unittest.TestCase):
 
 
 class SourceCollectorTests(unittest.TestCase):
+    def test_parse_additional_sources_supports_source_type_and_rank(self):
+        sources = parse_additional_sources(
+            "Public Telegram RSS|https://example.com/rss|telegram_public|rss|6|7\n"
+            "Legal Updates|https://example.com/legal|professional|page|8|30"
+        )
+
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(sources[0].group, "telegram_public")
+        self.assertEqual(sources[0].priority, 6)
+        self.assertEqual(sources[0].fresh_days, 7)
+        self.assertEqual(sources[1].type, "page")
+
     def test_parse_page_date_from_listing_text(self):
         parsed = _parse_page_date("Court Order on Hold Policies June 12, 2026 Some summary text")
         self.assertEqual(parsed, datetime(2026, 6, 12, tzinfo=timezone.utc))

@@ -1,8 +1,10 @@
+import os
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote_plus
 
-SourceType = Literal["rss", "federal_register", "google_news"]
+SourceType = Literal["rss", "federal_register", "google_news", "page"]
+SourceGroup = Literal["official", "news", "professional", "telegram_public", "data"]
 
 
 @dataclass(frozen=True)
@@ -12,7 +14,7 @@ class SourceConfig:
     url: str = ""
     priority: int = 5
     enabled: bool = True
-    group: str = "official"
+    group: SourceGroup = "official"
     fresh_days: int = 60
 
 
@@ -44,19 +46,61 @@ SOURCES = [
 ]
 
 
+def parse_additional_sources(raw: str | None = None) -> list[SourceConfig]:
+    raw = os.getenv("ADDITIONAL_SOURCES", "") if raw is None else raw
+    result: list[SourceConfig] = []
+    allowed_types = {"rss", "google_news", "page"}
+    allowed_groups = {"official", "news", "professional", "telegram_public", "data"}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 2:
+            continue
+        name, url = parts[0], parts[1]
+        group = parts[2] if len(parts) > 2 and parts[2] in allowed_groups else "news"
+        source_type = parts[3] if len(parts) > 3 and parts[3] in allowed_types else "rss"
+        try:
+            priority = int(parts[4]) if len(parts) > 4 and parts[4] else 5
+        except ValueError:
+            priority = 5
+        try:
+            fresh_days = int(parts[5]) if len(parts) > 5 and parts[5] else 30
+        except ValueError:
+            fresh_days = 30
+        if name and url:
+            result.append(
+                SourceConfig(
+                    name=name,
+                    type=source_type,
+                    url=url,
+                    priority=priority,
+                    enabled=True,
+                    group=group,
+                    fresh_days=fresh_days,
+                )
+            )
+    return result
+
+
+def all_sources() -> list[SourceConfig]:
+    return SOURCES + parse_additional_sources()
+
+
 def enabled_sources():
-    return [source for source in SOURCES if source.enabled]
+    return [source for source in all_sources() if source.enabled]
 
 
 def source_priority(name: str) -> int:
-    for source in SOURCES:
+    for source in all_sources():
         if source.name == name:
             return source.priority
     return 5
 
 
 def source_fresh_days(name: str) -> int:
-    for source in SOURCES:
+    for source in all_sources():
         if source.name == name:
             return source.fresh_days
     return 30
