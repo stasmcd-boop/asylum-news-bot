@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from app.bot_runner import build_daily_summary_text, build_post, collect_new_items, publish_new_items
 from app.config import settings
 from app.dashboard import dashboard_stats, importance_class
+from app.intelligence import analyze_item
 from app.local_state import LocalState
 from app.source_registry import enabled_sources
 from app.sources import collect_sources, fetch_all_sources, fetch_source_diagnostics
@@ -93,6 +94,35 @@ def find_item_by_url(url: str):
     return None
 
 
+def news_payload(item):
+    analysis = analyze_item(item)
+    return {
+        "source": item.source,
+        "title": item.title,
+        "url": item.url,
+        "published_at": item.published_at.isoformat() if item.published_at else None,
+        "category": item.category,
+        "importance": item.importance,
+        "urgency": analysis.urgency,
+        "affected_groups": analysis.affected_groups,
+        "tags": analysis.tags,
+    }
+
+
+def pending_payload(item):
+    payload = news_payload(item)
+    return {
+        "title": payload["title"],
+        "url": payload["url"],
+        "source": payload["source"],
+        "category": payload["category"],
+        "importance": payload["importance"],
+        "urgency": payload["urgency"],
+        "affected_groups": payload["affected_groups"],
+        "published_at": payload["published_at"],
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     stats = dashboard_stats()
@@ -168,6 +198,12 @@ def collector():
 
 @app.get("/api/news")
 def api_news():
+    items = collect_sources().items
+    return [news_payload(item) for item in items]
+
+
+@app.get("/api/news-basic")
+def api_news_basic():
     items = collect_sources().items
     return [
         {"source": item.source, "title": item.title, "url": item.url, "published_at": item.published_at.isoformat() if item.published_at else None, "category": item.category, "importance": item.importance}
@@ -296,7 +332,13 @@ def daily_summary():
 
 @app.get("/api/pending")
 def api_pending():
-    items = collect_new_items(limit=20, days=60)
+    items = collect_new_items(limit=10, days=60)
+    return [pending_payload(item) for item in items]
+
+
+@app.get("/api/pending-basic")
+def api_pending_basic():
+    items = collect_new_items(limit=10, days=60)
     return [
         {"title": item.title, "url": item.url, "source": item.source, "category": item.category, "importance": item.importance, "published_at": item.published_at.isoformat() if item.published_at else None}
         for item in items

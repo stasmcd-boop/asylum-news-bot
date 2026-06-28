@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 from app.bot_runner import fresh_items, sort_items
 from app.filters import detect_category, detect_importance, is_relevant
+from app.intelligence import analyze_item, determine_urgency
 from app.local_state import LocalState
 from app.models import NewsItem
 from app.sources import _parse_page_date, deduplicate_items, rank_items
@@ -107,6 +108,35 @@ class LocalStateTests(unittest.TestCase):
             saved = json.loads((Path(tmp) / "published_urls.json").read_text(encoding="utf-8"))
             self.assertEqual(saved, ["https://example.com/news"])
             self.assertTrue(LocalState(Path(tmp)).is_published("https://example.com/news"))
+
+
+class IntelligenceTests(unittest.TestCase):
+    def test_determine_urgency_promotes_deadline_language(self):
+        item = NewsItem(
+            source="USCIS",
+            title="USCIS announces filing deadline",
+            url="https://example.com/deadline",
+            importance="info",
+        )
+
+        self.assertEqual(determine_urgency(item), "high")
+
+    def test_analyze_item_returns_affected_groups_and_tags(self):
+        item = NewsItem(
+            source="USCIS News",
+            title="DHS extends Temporary Protected Status",
+            url="https://example.com/tps",
+            category="tps",
+            importance="important",
+            summary="TPS extended for eligible nationals.",
+        )
+
+        analysis = analyze_item(item)
+
+        self.assertEqual(analysis.urgency, "high")
+        self.assertIn("люди с TPS", analysis.affected_groups)
+        self.assertIn("tps", analysis.tags)
+        self.assertEqual(analysis.confidence, "medium")
 
 
 if __name__ == "__main__":

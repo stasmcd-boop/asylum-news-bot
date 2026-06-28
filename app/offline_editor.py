@@ -1,5 +1,6 @@
 from html import escape
 
+from app.intelligence import analyze_item
 from app.models import NewsItem
 
 IMPORTANCE = {
@@ -40,6 +41,9 @@ def build_offline_post(item: NewsItem) -> str:
     original = escape(item.title)
     source = escape(item.source)
     url = escape(item.url)
+    analysis = analyze_item(item)
+    affected = "\n".join(f"• {escape(group)}" for group in analysis.affected_groups)
+    actions = "\n".join(f"• {escape(step)}" for step in analysis.action_steps_ru)
 
     post = f"""{label}
 <b>{escape(title)}</b>
@@ -49,13 +53,16 @@ def build_offline_post(item: NewsItem) -> str:
 Источник: {source}. Дата публикации: {escape(date)}.
 
 <b>Кого может касаться</b>
-Это может быть полезно людям, которые следят за темами: {escape(category)}, USCIS, EOIR, EAD, TPS, parole, immigration court или removal proceedings.
+{affected}
 
 <b>Что это значит простыми словами</b>
-Сейчас бот работает в режиме без OpenAI: он находит официальные документы, определяет тему и важность, но не делает глубокий юридический разбор текста. После подключения OpenAI API здесь будет подробное объяснение простым русским языком.
+{escape(analysis.plain_summary_ru)}
+
+<b>Сравнение с прежними правилами</b>
+{escape(analysis.previous_rules_ru)}
 
 <b>Что делать сейчас</b>
-Проверьте официальный источник. Если документ касается вашей ситуации, лучше сохранить ссылку и при необходимости обсудить её с иммиграционным специалистом.
+{actions}
 
 <b>Официальный источник</b>
 {url}
