@@ -21,6 +21,24 @@ def test_telegram() -> None:
     print("Telegram response:", result)
 
 
+def test_ai() -> None:
+    editor = AIEditor()
+    print("AI enabled:", editor.enabled)
+    if not editor.enabled:
+        print("OpenAI key is missing or still uses placeholder value.")
+        return
+    try:
+        response = editor.client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[{"role": "user", "content": "Ответь одним словом: ОК"}],
+            temperature=0,
+            max_tokens=20,
+        )
+        print("AI response:", response.choices[0].message.content)
+    except Exception as exc:
+        print("AI error:", repr(exc))
+
+
 def run_once() -> None:
     print("Fetching news from official sources...")
     items = fetch_all_sources()
@@ -73,13 +91,15 @@ def main() -> None:
         "command",
         nargs="?",
         default="test-telegram",
-        choices=["test-telegram", "run-once", "publish-latest"],
+        choices=["test-telegram", "test-ai", "run-once", "publish-latest"],
         help="Command to run",
     )
     args = parser.parse_args()
 
     if args.command == "test-telegram":
         test_telegram()
+    elif args.command == "test-ai":
+        test_ai()
     elif args.command == "run-once":
         run_once()
     elif args.command == "publish-latest":
