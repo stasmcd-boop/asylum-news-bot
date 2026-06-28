@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: asylum-news-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn web_app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHANNEL
+        value: "@asylun_usa"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: "gpt-4.1-mini"
+      - key: APP_TIMEZONE
+        value: "Asia/Ho_Chi_Minh"
