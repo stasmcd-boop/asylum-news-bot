@@ -9,6 +9,7 @@ from app.filters import detect_category, detect_importance, is_relevant
 from app.intelligence import analyze_item, determine_urgency
 from app.local_state import LocalState
 from app.models import NewsItem
+from app.search import filter_items, matches_query
 from app.sources import _parse_page_date, deduplicate_items, rank_items
 
 
@@ -137,6 +138,37 @@ class IntelligenceTests(unittest.TestCase):
         self.assertIn("люди с TPS", analysis.affected_groups)
         self.assertIn("tps", analysis.tags)
         self.assertEqual(analysis.confidence, "medium")
+
+
+class SearchTests(unittest.TestCase):
+    def test_matches_query_requires_all_words(self):
+        item = NewsItem(
+            source="USCIS",
+            title="USCIS updates asylum filing deadline",
+            url="https://example.com/asylum",
+            summary="Important asylum filing update.",
+        )
+
+        self.assertTrue(matches_query(item, "asylum deadline"))
+        self.assertFalse(matches_query(item, "asylum tps"))
+
+    def test_filter_items_by_category_and_urgency(self):
+        tps = NewsItem(
+            source="USCIS",
+            title="DHS extends TPS deadline",
+            url="https://example.com/tps",
+            category="tps",
+            importance="info",
+        )
+        ead = NewsItem(
+            source="USCIS",
+            title="EAD update",
+            url="https://example.com/ead",
+            category="ead",
+            importance="info",
+        )
+
+        self.assertEqual(filter_items([tps, ead], category="tps", urgency="high"), [tps])
 
 
 if __name__ == "__main__":

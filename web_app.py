@@ -10,6 +10,7 @@ from app.dashboard import dashboard_stats, importance_class
 from app.intelligence import analyze_item
 from app.local_state import LocalState
 from app.source_registry import enabled_sources
+from app.search import filter_items
 from app.sources import collect_sources, fetch_all_sources, fetch_source_diagnostics
 from app.telegram_client import TelegramClient
 from app.version import APP_VERSION, RELEASE_NOTES
@@ -65,7 +66,10 @@ def page(title: str, body: str, active: str = "dashboard") -> str:
     button.warn,a.warn {{ background:var(--orange); }}
     pre {{ white-space:pre-wrap; background:#020617; border-radius:12px; padding:16px; overflow:auto; border:1px solid var(--line); }}
     textarea {{ width:100%; min-height:520px; background:#020617; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:16px; font-size:15px; line-height:1.45; }}
-    input {{ width:100%; background:#020617; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; }}
+    input, select {{ width:100%; background:#020617; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; }}
+    label {{ display:block; color:var(--muted); font-size:14px; }}
+    .ok {{ color:#86efac; }}
+    .warntext {{ color:#fcd34d; }}
     .draft {{ border-left:5px solid #64748b; }}
     .draft.danger {{ border-left-color:var(--red); background:var(--panel); }}
     .draft.warning {{ border-left-color:var(--orange); background:var(--panel); }}
@@ -121,6 +125,53 @@ def pending_payload(item):
         "affected_groups": payload["affected_groups"],
         "published_at": payload["published_at"],
     }
+
+
+def filter_controls(query: str = "", category: str = "", importance: str = "", urgency: str = "") -> str:
+    def selected(value: str, current: str) -> str:
+        return "selected" if value == current else ""
+
+    return f"""
+    <div class="card">
+      <form method="get">
+        <div class="grid">
+          <label>Search
+            <input name="q" value="{escape(query)}" placeholder="asylum, TPS, EAD, court">
+          </label>
+          <label>Category
+            <select name="category">
+              <option value="">All</option>
+              <option value="asylum" {selected("asylum", category)}>Asylum</option>
+              <option value="court" {selected("court", category)}>Court</option>
+              <option value="ead" {selected("ead", category)}>EAD</option>
+              <option value="tps" {selected("tps", category)}>TPS</option>
+              <option value="parole" {selected("parole", category)}>Parole</option>
+              <option value="deportation" {selected("deportation", category)}>Deportation</option>
+              <option value="policy" {selected("policy", category)}>Policy</option>
+            </select>
+          </label>
+          <label>Importance
+            <select name="importance">
+              <option value="">All</option>
+              <option value="important" {selected("important", importance)}>Important</option>
+              <option value="medium" {selected("medium", importance)}>Medium</option>
+              <option value="info" {selected("info", importance)}>Info</option>
+            </select>
+          </label>
+          <label>Urgency
+            <select name="urgency">
+              <option value="">All</option>
+              <option value="high" {selected("high", urgency)}>High</option>
+              <option value="medium" {selected("medium", urgency)}>Medium</option>
+              <option value="low" {selected("low", urgency)}>Low</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit">Apply filters</button>
+        <a class="button secondary" href="/check">Reset</a>
+      </form>
+    </div>
+    """
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -197,8 +248,8 @@ def collector():
 
 
 @app.get("/api/news")
-def api_news():
-    items = collect_sources().items
+def api_news(q: str = "", category: str = "", importance: str = "", urgency: str = ""):
+    items = filter_items(collect_sources().items, query=q, category=category, importance=importance, urgency=urgency)
     return [news_payload(item) for item in items]
 
 
@@ -243,25 +294,35 @@ def diagnostics():
 
 
 @app.get("/check", response_class=HTMLResponse)
-def check():
-    items = collect_new_items(limit=20, days=60)
+def check(q: str = "", category: str = "", importance: str = "", urgency: str = ""):
+    items = filter_items(
+        collect_new_items(limit=30, days=60),
+        query=q,
+        category=category,
+        importance=importance,
+        urgency=urgency,
+    )[:10]
+    controls = filter_controls(q, category, importance, urgency)
     header = "<div class='top'><div><h1>Черновики</h1><p class='muted'>Свежие неопубликованные материалы за последние 60 дней</p></div><a class='button secondary' href='/'>Dashboard</a></div>"
     if not items:
-        return page("Черновики", header + "<div class='card'><p>Новых свежих неопубликованных материалов нет.</p></div>", active="drafts")
+        return page("Черновики", header + controls + "<div class='card'><p>Новых свежих неопубликованных материалов нет.</p></div>", active="drafts")
+
     cards = []
     for item in items:
         date = item.published_at.date().isoformat() if item.published_at else "no-date"
+        analysis = analyze_item(item)
         cls = importance_class(item.importance)
         cards.append(f"""
         <div class="card draft {cls}">
-          <div><span class="pill {cls}">{escape(item.importance)}</span><span class="pill">{escape(item.category)}</span><span class="pill">{escape(item.source)}</span></div>
+          <div><span class="pill {cls}">{escape(item.importance)}</span><span class="pill">{escape(item.category)}</span><span class="pill">urgency: {escape(analysis.urgency)}</span><span class="pill">{escape(item.source)}</span></div>
           <h2>{escape(item.title)}</h2>
           <p class="muted">Дата: {escape(date)}</p>
-          <p><a href="{escape(item.url)}" target="_blank">Открыть официальный источник</a></p>
+          <p class="muted">Кого касается: {escape(", ".join(analysis.affected_groups))}</p>
+          <p><a href="{escape(item.url)}" target="_blank">Открыть источник</a></p>
           <a class="button" href="/edit?url={quote(item.url)}">Открыть редактор</a>
         </div>
         """)
-    return page("Черновики", header + "".join(cards), active="drafts")
+    return page("Черновики", header + controls + "".join(cards), active="drafts")
 
 
 @app.get("/edit", response_class=HTMLResponse)
@@ -331,8 +392,14 @@ def daily_summary():
 
 
 @app.get("/api/pending")
-def api_pending():
-    items = collect_new_items(limit=10, days=60)
+def api_pending(q: str = "", category: str = "", importance: str = "", urgency: str = ""):
+    items = filter_items(
+        collect_new_items(limit=30, days=60),
+        query=q,
+        category=category,
+        importance=importance,
+        urgency=urgency,
+    )[:10]
     return [pending_payload(item) for item in items]
 
 
