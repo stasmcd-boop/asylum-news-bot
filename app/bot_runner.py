@@ -2,24 +2,17 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 from app.ai_editor import AIEditor
+from app.config import settings
 from app.local_state import LocalState
 from app.models import NewsItem
 from app.offline_editor import build_offline_post
 from app.source_registry import source_fresh_days, source_priority
-from app.sources import fetch_all_sources
+from app.sources import fetch_all_sources, rank_items
 from app.telegram_client import TelegramClient
 
 
 def sort_items(items: List[NewsItem]) -> List[NewsItem]:
-    priority = {"important": 0, "medium": 1, "info": 2}
-    return sorted(
-        items,
-        key=lambda x: (
-            priority.get(x.importance, 9),
-            -source_priority(x.source),
-            -(x.published_at.timestamp() if x.published_at else 0),
-        ),
-    )
+    return rank_items(items)
 
 
 def fresh_items(items: List[NewsItem], days: int = 60) -> List[NewsItem]:
@@ -73,7 +66,7 @@ def publish_new_items(bot_token: str, channel: str, limit: int = 1, use_ai: bool
 
 def build_daily_summary_text(days: int = 1) -> str:
     items = sort_items(fresh_items(fetch_all_sources(), days=days))[:10]
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(settings.timezone_info()).strftime("%Y-%m-%d")
     if not items:
         return f"📌 <b>Daily summary: {today}</b>\n\nСегодня свежих релевантных обновлений не найдено."
 

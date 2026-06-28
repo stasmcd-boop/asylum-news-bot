@@ -12,7 +12,7 @@ from app.telegram_client import TelegramClient
 def test_telegram() -> None:
     settings.require_telegram()
     client = TelegramClient(settings.telegram_bot_token, settings.telegram_channel)
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(settings.timezone_info()).strftime("%Y-%m-%d %H:%M:%S %Z")
     text = "✅ <b>Asylum News Bot</b>\n\nTelegram connected.\n" + f"Time: <code>{now}</code>"
     result = client.send_message(text)
     print("Telegram response:", result)

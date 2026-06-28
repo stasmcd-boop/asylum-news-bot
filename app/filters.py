@@ -1,3 +1,5 @@
+import re
+
 CORE_KEYWORDS = [
     "asylum", "refugee", "credible fear", "reasonable fear", "withholding of removal",
     "immigration court", "eoir", "uscis", "ice", "cbp", "dhs",
@@ -39,6 +41,15 @@ IMPORTANT_RULES = [
 ]
 
 
+def contains_term(text: str, term: str) -> bool:
+    pattern = rf"(?<![a-z0-9]){re.escape(term.lower())}(?![a-z0-9])"
+    return re.search(pattern, text) is not None
+
+
+def contains_any_term(text: str, terms: list[str]) -> bool:
+    return any(contains_term(text, term) for term in terms)
+
+
 def is_relevant(title: str, summary: str = "") -> bool:
     text = f"{title} {summary}".lower()
     if any(keyword in text for keyword in ALWAYS_INCLUDE):
@@ -51,14 +62,14 @@ def is_relevant(title: str, summary: str = "") -> bool:
 def detect_category(title: str, summary: str = "") -> str:
     text = f"{title} {summary}".lower()
     for category, words in CATEGORY_RULES.items():
-        if any(word in text for word in words):
+        if contains_any_term(text, words):
             return category
     return "immigration"
 
 
 def detect_importance(title: str, summary: str = "") -> str:
     text = f"{title} {summary}".lower()
-    if any(word in text for word in IMPORTANT_RULES):
+    if contains_any_term(text, IMPORTANT_RULES):
         return "important"
     if any(word in text for word in ["asylum", "deportation", "removal", "ead", "tps", "parole"]):
         return "medium"

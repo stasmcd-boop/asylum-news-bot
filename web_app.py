@@ -9,7 +9,7 @@ from app.config import settings
 from app.dashboard import dashboard_stats, importance_class
 from app.local_state import LocalState
 from app.source_registry import enabled_sources
-from app.sources import fetch_all_sources
+from app.sources import collect_sources, fetch_all_sources, fetch_source_diagnostics
 from app.telegram_client import TelegramClient
 from app.version import APP_VERSION, RELEASE_NOTES
 
@@ -168,11 +168,42 @@ def collector():
 
 @app.get("/api/news")
 def api_news():
-    items = fetch_all_sources()
+    items = collect_sources().items
     return [
         {"source": item.source, "title": item.title, "url": item.url, "published_at": item.published_at.isoformat() if item.published_at else None, "category": item.category, "importance": item.importance}
         for item in items
     ]
+
+
+@app.get("/api/diagnostics")
+def api_diagnostics():
+    diagnostics = fetch_source_diagnostics()
+    return [
+        {
+            "source": item.source,
+            "ok": item.ok,
+            "fetched": item.fetched,
+            "relevant": item.relevant,
+            "error": item.error,
+        }
+        for item in diagnostics
+    ]
+
+
+@app.get("/diagnostics", response_class=HTMLResponse)
+def diagnostics():
+    rows = []
+    for item in fetch_source_diagnostics():
+        status = "<span class='ok'>OK</span>" if item.ok else "<span class='warntext'>FAILED</span>"
+        detail = item.error or f"Fetched: {item.fetched}; relevant: {item.relevant}"
+        rows.append(f"""
+        <div class="card">
+          <h3>{escape(item.source)} — {status}</h3>
+          <p class="muted">{escape(detail)}</p>
+        </div>
+        """)
+    body = "<h1>Collector diagnostics</h1><a class='button secondary' href='/'>Назад</a>" + "".join(rows)
+    return page("Collector diagnostics", body)
 
 
 @app.get("/check", response_class=HTMLResponse)

@@ -12,3 +12,4 @@ class NewsItem:
     summary: str = ""
     category: str = "general"
     importance: str = "info"
+    source_rank: int = 50
