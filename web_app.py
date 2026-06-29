@@ -19,9 +19,42 @@ from app.version import APP_VERSION, RELEASE_NOTES
 
 app = FastAPI(title="Asylum Intelligence")
 
+CATEGORY_RU = {
+    "asylum": "Убежище",
+    "court": "Иммиграционный суд",
+    "ead": "Разрешение на работу",
+    "tps": "TPS",
+    "parole": "Parole",
+    "deportation": "Депортация / removal",
+    "ice": "ICE",
+    "cbp": "CBP / граница",
+    "policy": "Правила и политика",
+    "immigration": "Иммиграция",
+    "general": "Иммиграция",
+}
+
+URGENCY_RU = {"high": "срочно", "medium": "важно", "low": "обычно"}
+STATUS_RU = {
+    "collected": "собрано",
+    "analyzed": "проанализировано",
+    "draft_ready": "готово к проверке",
+    "edited": "отредактировано",
+    "published": "опубликовано",
+    "ignored": "игнорируется",
+}
+IMPORTANCE_RU = {"important": "важная", "medium": "средняя", "info": "инфо"}
+
 
 def page(title: str, body: str, active: str = "dashboard", description: str = "") -> str:
-    meta_description = description or "Russian-language US immigration intelligence, analysis, timelines, and editorial publishing workflow."
+    meta_description = description or "Русскоязычная платформа иммиграционной аналитики США: новости, объяснения, редакторские черновики и публикации."
+    nav = [
+        ("/", "Дашборд"),
+        ("/newsroom", "Ньюсрум"),
+        ("/search", "Поиск"),
+        ("/timelines", "Темы"),
+        ("/archive", "Публичный архив"),
+    ]
+    nav_html = "".join(f'<a href="{href}">{label}</a>' for href, label in nav)
     return f"""
 <!doctype html>
 <html lang="ru">
@@ -32,7 +65,7 @@ def page(title: str, body: str, active: str = "dashboard", description: str = ""
   <meta name="description" content="{escape(meta_description)}">
   <style>
     * {{ box-sizing:border-box; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#f5f7fb; color:#111827; margin:0; padding:0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#f3f5f8; color:#111827; margin:0; padding:0; }}
     .wrap {{ max-width: 1360px; margin: 0 auto; padding:28px; }}
     .topbar {{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:22px; }}
     .brand {{ font-weight:800; font-size:22px; }}
@@ -40,6 +73,7 @@ def page(title: str, body: str, active: str = "dashboard", description: str = ""
     .card {{ background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:20px; margin:14px 0; box-shadow:0 1px 2px rgba(15,23,42,.04); }}
     .metric {{ background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }}
     .metric b {{ display:block; font-size:28px; margin-top:6px; }}
+    .metric span {{ color:#64748b; font-size:13px; font-weight:700; }}
     a.button, button {{ display:inline-block; background:#1d4ed8; color:white; padding:10px 14px; border-radius:8px; text-decoration:none; border:0; margin:6px 6px 6px 0; cursor:pointer; font-size:14px; font-weight:700; }}
     a.secondary, button.secondary {{ background:#475569; }}
     a.warn, button.warn {{ background:#b45309; }}
@@ -47,8 +81,13 @@ def page(title: str, body: str, active: str = "dashboard", description: str = ""
     textarea {{ width:100%; min-height:420px; background:#ffffff; color:#111827; border:1px solid #cbd5e1; border-radius:8px; padding:16px; font-size:15px; line-height:1.5; }}
     input, select {{ width:100%; background:#ffffff; color:#111827; border:1px solid #cbd5e1; border-radius:8px; padding:11px; }}
     label {{ display:block; color:#475569; font-size:13px; font-weight:700; }}
-    img.thumb {{ width:160px; height:108px; object-fit:cover; border-radius:8px; background:#e5e7eb; }}
+    .thumb {{ width:160px; height:108px; object-fit:cover; border-radius:8px; background:#e5e7eb; }}
+    .thumb.placeholder {{ display:flex; align-items:center; justify-content:center; color:#94a3b8; font-weight:800; }}
     .muted {{ color:#64748b; }}
+    .lead {{ font-size:18px; line-height:1.45; }}
+    .headline {{ font-size:20px; margin:4px 0 8px; }}
+    .explain {{ background:#f8fafc; border-left:4px solid #2563eb; padding:12px 14px; border-radius:8px; }}
+    .toolbar {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }}
     .ok {{ color:#047857; }}
     .warntext {{ color:#b45309; }}
     .grid {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px; }}
@@ -62,9 +101,35 @@ def page(title: str, body: str, active: str = "dashboard", description: str = ""
     @media (max-width: 820px) {{ .queue-card, .editor-grid, .topbar {{ display:block; }} img.thumb {{ width:100%; height:auto; }} }}
   </style>
 </head>
-<body><div class="wrap"><div class="topbar"><div class="brand">Immigration Intelligence</div><div class="nav"><a href="/">Dashboard</a><a href="/newsroom">Newsroom</a><a href="/search">Search</a><a href="/archive">Public archive</a></div></div>{body}</div></body>
+<body><div class="wrap"><div class="topbar"><div class="brand">Иммиграционная разведка</div><div class="nav">{nav_html}</div></div>{body}</div></body>
 </html>
 """
+
+
+def ru_category(value: str) -> str:
+    return CATEGORY_RU.get(value, value or "иммиграция")
+
+
+def ru_urgency(value: str) -> str:
+    return URGENCY_RU.get(value, value or "не указано")
+
+
+def ru_status(value: str) -> str:
+    return STATUS_RU.get(value, value or "не указано")
+
+
+def ru_importance(value: str) -> str:
+    return IMPORTANCE_RU.get(value, value or "инфо")
+
+
+def format_date(value: str) -> str:
+    return value[:10] if value else "дата не указана"
+
+
+def editorial_headline(draft) -> str:
+    if draft.russian_summary:
+        return draft.russian_summary.split(".")[0][:180]
+    return draft.title
 
 
 def find_item_by_url(url: str):
@@ -120,40 +185,40 @@ def filter_controls(query: str = "", category: str = "", importance: str = "", u
     <div class="card">
       <form method="get">
         <div class="grid">
-          <label>Search
-            <input name="q" value="{escape(query)}" placeholder="asylum, TPS, EAD, court">
+          <label>Поиск
+            <input name="q" value="{escape(query)}" placeholder="убежище, TPS, EAD, суд">
           </label>
-          <label>Category
+          <label>Категория
             <select name="category">
-              <option value="">All</option>
-              <option value="asylum" {selected("asylum", category)}>Asylum</option>
-              <option value="court" {selected("court", category)}>Court</option>
+              <option value="">Все</option>
+              <option value="asylum" {selected("asylum", category)}>Убежище</option>
+              <option value="court" {selected("court", category)}>Иммиграционный суд</option>
               <option value="ead" {selected("ead", category)}>EAD</option>
               <option value="tps" {selected("tps", category)}>TPS</option>
               <option value="parole" {selected("parole", category)}>Parole</option>
-              <option value="deportation" {selected("deportation", category)}>Deportation</option>
-              <option value="policy" {selected("policy", category)}>Policy</option>
+              <option value="deportation" {selected("deportation", category)}>Депортация</option>
+              <option value="policy" {selected("policy", category)}>Правила</option>
             </select>
           </label>
-          <label>Importance
+          <label>Важность
             <select name="importance">
-              <option value="">All</option>
-              <option value="important" {selected("important", importance)}>Important</option>
-              <option value="medium" {selected("medium", importance)}>Medium</option>
-              <option value="info" {selected("info", importance)}>Info</option>
+              <option value="">Все</option>
+              <option value="important" {selected("important", importance)}>Важная</option>
+              <option value="medium" {selected("medium", importance)}>Средняя</option>
+              <option value="info" {selected("info", importance)}>Инфо</option>
             </select>
           </label>
-          <label>Urgency
+          <label>Срочность
             <select name="urgency">
-              <option value="">All</option>
-              <option value="high" {selected("high", urgency)}>High</option>
-              <option value="medium" {selected("medium", urgency)}>Medium</option>
-              <option value="low" {selected("low", urgency)}>Low</option>
+              <option value="">Все</option>
+              <option value="high" {selected("high", urgency)}>Срочно</option>
+              <option value="medium" {selected("medium", urgency)}>Важно</option>
+              <option value="low" {selected("low", urgency)}>Обычно</option>
             </select>
           </label>
         </div>
-        <button type="submit">Apply filters</button>
-        <a class="button secondary" href="/check">Reset</a>
+        <button type="submit">Применить</button>
+        <a class="button secondary" href="/check">Сбросить</a>
       </form>
     </div>
     """
@@ -167,46 +232,46 @@ def draft_filter_controls(query: str = "", category: str = "", urgency: str = ""
     <div class="card">
       <form method="get">
         <div class="grid">
-          <label>Search
-            <input name="q" value="{escape(query)}" placeholder="title, source, tag">
+          <label>Поиск
+            <input name="q" value="{escape(query)}" placeholder="заголовок, источник, тег, группа">
           </label>
-          <label>Source
+          <label>Источник
             <input name="source" value="{escape(source)}" placeholder="USCIS, Federal Register">
           </label>
-          <label>Category
+          <label>Категория
             <select name="category">
-              <option value="">All</option>
-              <option value="asylum" {selected("asylum", category)}>Asylum</option>
-              <option value="court" {selected("court", category)}>Court</option>
+              <option value="">Все</option>
+              <option value="asylum" {selected("asylum", category)}>Убежище</option>
+              <option value="court" {selected("court", category)}>Иммиграционный суд</option>
               <option value="ead" {selected("ead", category)}>EAD</option>
               <option value="tps" {selected("tps", category)}>TPS</option>
               <option value="parole" {selected("parole", category)}>Parole</option>
-              <option value="deportation" {selected("deportation", category)}>Deportation</option>
-              <option value="policy" {selected("policy", category)}>Policy</option>
+              <option value="deportation" {selected("deportation", category)}>Депортация</option>
+              <option value="policy" {selected("policy", category)}>Правила</option>
             </select>
           </label>
-          <label>Urgency
+          <label>Срочность
             <select name="urgency">
-              <option value="">All</option>
-              <option value="high" {selected("high", urgency)}>High</option>
-              <option value="medium" {selected("medium", urgency)}>Medium</option>
-              <option value="low" {selected("low", urgency)}>Low</option>
+              <option value="">Все</option>
+              <option value="high" {selected("high", urgency)}>Срочно</option>
+              <option value="medium" {selected("medium", urgency)}>Важно</option>
+              <option value="low" {selected("low", urgency)}>Обычно</option>
             </select>
           </label>
-          <label>Status
+          <label>Статус
             <select name="status">
-              <option value="">All</option>
-              <option value="collected" {selected("collected", status)}>Collected</option>
-              <option value="analyzed" {selected("analyzed", status)}>Analyzed</option>
-              <option value="draft_ready" {selected("draft_ready", status)}>Draft ready</option>
-              <option value="edited" {selected("edited", status)}>Edited</option>
-              <option value="published" {selected("published", status)}>Published</option>
-              <option value="ignored" {selected("ignored", status)}>Ignored</option>
+              <option value="">Все</option>
+              <option value="collected" {selected("collected", status)}>Собрано</option>
+              <option value="analyzed" {selected("analyzed", status)}>Проанализировано</option>
+              <option value="draft_ready" {selected("draft_ready", status)}>Готово к проверке</option>
+              <option value="edited" {selected("edited", status)}>Отредактировано</option>
+              <option value="published" {selected("published", status)}>Опубликовано</option>
+              <option value="ignored" {selected("ignored", status)}>Игнорируется</option>
             </select>
           </label>
         </div>
-        <button type="submit">Apply filters</button>
-        <a class="button secondary" href="/drafts">Reset</a>
+        <button type="submit">Применить</button>
+        <a class="button secondary" href="/drafts">Сбросить</a>
       </form>
     </div>
     """
@@ -220,42 +285,42 @@ def home():
     stats = newsroom_dashboard_stats(store.list_drafts(), diagnostics)
     release_rows = "".join(f"<li>{escape(note)}</li>" for note in RELEASE_NOTES)
     body = """
-    <h1>Editorial Dashboard</h1>
-    <p class="muted">Primary workspace for Russian-language US immigration intelligence. Telegram is an output channel.</p>
+    <h1>Редакционный дашборд</h1>
+    <p class="muted">Главное рабочее место для мониторинга, анализа и подготовки иммиграционных новостей США. Telegram — только канал публикации.</p>
     <div class="grid">
-      <div class="metric">New news<b>{new_news}</b></div>
-      <div class="metric">Important<b>{important_news}</b></div>
-      <div class="metric">Awaiting review<b>{awaiting_review}</b></div>
-      <div class="metric">Published today<b>{published_today}</b></div>
-      <div class="metric">Ignored<b>{ignored}</b></div>
-      <div class="metric">AI processed<b>{ai_processed}</b></div>
-      <div class="metric">Collector health<b>{collector_health}</b></div>
+      <div class="metric"><span>Новые сегодня</span><b>{new_news}</b></div>
+      <div class="metric"><span>Важные</span><b>{important_news}</b></div>
+      <div class="metric"><span>Ждут редактора</span><b>{awaiting_review}</b></div>
+      <div class="metric"><span>Опубликовано сегодня</span><b>{published_today}</b></div>
+      <div class="metric"><span>Игнорируются</span><b>{ignored}</b></div>
+      <div class="metric"><span>С AI-анализом</span><b>{ai_processed}</b></div>
+      <div class="metric"><span>Здоровье коллектора</span><b>{collector_health}</b></div>
     </div>
     <div class="card">
-      <h2>Workspace</h2>
-      <a class="button" href="/newsroom">Open newsroom</a>
-      <a class="button secondary" href="/search">Global search</a>
-      <a class="button secondary" href="/timelines">Topic timelines</a>
-      <a class="button secondary" href="/diagnostics">Collector diagnostics</a>
+      <h2>Рабочие действия</h2>
+      <a class="button" href="/newsroom">Открыть ньюсрум</a>
+      <a class="button secondary" href="/search">Глобальный поиск</a>
+      <a class="button secondary" href="/timelines">Таймлайны тем</a>
+      <a class="button secondary" href="/diagnostics">Диагностика источников</a>
       <a class="button" href="/daily-summary">Отправить daily summary</a>
     </div>
 
     <div class="card">
       <h2>Статус</h2>
-      <p>Telegram channel: <b>{channel}</b></p>
+      <p>Telegram-канал: <b>{channel}</b></p>
       <p>OpenAI: <b>{ai_status}</b></p>
-      <p>Version: <b>{version}</b></p>
+      <p>Версия: <b>{version}</b></p>
       <ul>{release_rows}</ul>
-      <p class="muted">Редактор сохраняет структурированные черновики, показывает исходный текст, русское объяснение, изображение и предпросмотр Telegram-поста перед отправкой.</p>
+      <p class="muted">Каждая новость проходит через очередь: исходник, русское объяснение, оценка влияния, текст поста и ручное подтверждение публикации.</p>
     </div>
     """.format(
         **stats,
         channel=escape(settings.telegram_channel or "not set"),
-        ai_status="configured" if settings.openai_api_key and not settings.openai_api_key.startswith("paste_") else "offline fallback",
+        ai_status="подключен" if settings.openai_api_key and not settings.openai_api_key.startswith("paste_") else "локальный fallback",
         version=escape(APP_VERSION),
         release_rows=release_rows,
     )
-    return page("Immigration Intelligence", body)
+    return page("Иммиграционная разведка", body)
 
 
 @app.get("/health")
@@ -279,13 +344,13 @@ def collector():
         rows.append(f"""
         <div class="card">
           <h2>{escape(source.name)}</h2>
-          <p><span class="pill">type: {escape(source.type)}</span><span class="pill">priority: {source.priority}</span><span class="pill">group: {escape(source.group)}</span></p>
+          <p><span class="pill">тип: {escape(source.type)}</span><span class="pill">приоритет: {source.priority}</span><span class="pill">группа: {escape(source.group)}</span></p>
           <p>Всего найдено: <b>{found}</b> · Свежие 60 дней: <b>{fresh}</b></p>
           <p class="muted">{escape(source.url or 'Federal Register API')}</p>
         </div>
         """)
-    body = f"<h1>Collector 2.0</h1><p class='muted'>Версия: {escape(APP_VERSION)}</p>" + "".join(rows)
-    return page("Collector", body, active="collector")
+    body = f"<h1>Коллектор источников</h1><p class='muted'>Версия: {escape(APP_VERSION)}</p>" + "".join(rows)
+    return page("Коллектор", body, active="collector")
 
 
 @app.get("/api/news")
@@ -322,16 +387,16 @@ def api_diagnostics():
 def diagnostics():
     rows = []
     for item in fetch_source_diagnostics():
-        status = "<span class='ok'>OK</span>" if item.ok else "<span class='warntext'>FAILED</span>"
-        detail = item.error or f"Fetched: {item.fetched}; relevant: {item.relevant}"
+        status = "<span class='ok'>работает</span>" if item.ok else "<span class='warntext'>ошибка</span>"
+        detail = item.error or f"Получено: {item.fetched}; релевантно: {item.relevant}"
         rows.append(f"""
         <div class="card">
           <h3>{escape(item.source)} — {status}</h3>
           <p class="muted">{escape(detail)}</p>
         </div>
         """)
-    body = "<h1>Collector diagnostics</h1><a class='button secondary' href='/'>Назад</a>" + "".join(rows)
-    return page("Collector diagnostics", body)
+    body = "<h1>Диагностика источников</h1><a class='button secondary' href='/'>Назад</a>" + "".join(rows)
+    return page("Диагностика источников", body)
 
 
 @app.get("/newsroom", response_class=HTMLResponse)
@@ -346,98 +411,116 @@ def drafts(q: str = "", category: str = "", urgency: str = "", source: str = "",
     rows = []
     for draft in store.list_drafts(query=q, category=category, urgency=urgency, source=source, status=status):
         affected = ", ".join(draft.affected_groups[:3])
-        image = f'<img class="thumb" src="{escape(draft.image_url)}" alt="">' if draft.image_url else '<div class="thumb"></div>'
+        image = f'<img class="thumb" src="{escape(draft.image_url)}" alt="">' if draft.image_url else '<div class="thumb placeholder">без фото</div>'
         can_publish = draft.status not in {"published", "ignored"} and draft.impact_score >= 35 and draft.telegram_text.strip()
-        publish_button = '<button class="warn" type="submit" name="action" value="publish">Publish</button>' if can_publish else '<button class="secondary" type="button" disabled>Publish</button>'
+        publish_button = '<button class="warn" type="submit" name="action" value="publish">Опубликовать</button>' if can_publish else '<button class="secondary" type="button" disabled>Не готово</button>'
+        deadline = f'<span class="pill danger">срок: {escape(draft.deadline)}</span>' if draft.deadline else ""
+        effective = f'<span class="pill warning">в силе с: {escape(draft.effective_date)}</span>' if draft.effective_date else ""
         rows.append(f"""
         <div class="card queue-card">
           <div>{image}</div>
           <div>
-            <h3>{escape(draft.russian_summary or draft.title)}</h3>
-            <p class="muted">{escape(draft.title)}</p>
-            <p class="muted">{escape(draft.source)} | {escape(draft.published_at or "no-date")} | {escape(draft.category)} | {escape(draft.urgency)} | impact {draft.impact_score} | confidence {escape(draft.confidence)} | {escape(draft.status)}</p>
-            <p>{escape(draft.russian_explanation or draft.russian_summary)}</p>
-            <p class="muted">Affected: {escape(affected or "not detected")}</p>
+            <div class="toolbar">
+              <span class="pill">{escape(ru_status(draft.status))}</span>
+              <span class="pill">{escape(ru_category(draft.category))}</span>
+              <span class="pill">{escape(ru_urgency(draft.urgency))}</span>
+              <span class="pill">влияние {draft.impact_score}/100</span>
+              <span class="pill">уверенность: {escape(draft.confidence)}</span>
+              {deadline}{effective}
+            </div>
+            <h3 class="headline">{escape(editorial_headline(draft))}</h3>
+            <p class="muted">Оригинал: {escape(draft.title)}</p>
+            <p class="muted">{escape(draft.source)} · {escape(format_date(draft.published_at))} · {escape(ru_importance(draft.importance))}</p>
+            <div class="explain">{escape(draft.russian_explanation or draft.russian_summary or "Русское объяснение пока не сформировано.")}</div>
+            <p><b>Кого может касаться:</b> {escape(affected or "не определено")}</p>
+            <p><b>Что проверить редактору:</b> {escape(draft.recommended_action or "Откройте источник и проверьте применимость новости.")}</p>
             <p>{''.join(f'<span class="pill">{escape(tag)}</span>' for tag in draft.tags[:8])}</p>
-            <a class="button" href="/drafts/{escape(draft.id)}">Open</a>
-            <a class="button secondary" href="/drafts/{escape(draft.id)}">Edit</a>
+            <a class="button" href="/drafts/{escape(draft.id)}">Открыть</a>
+            <a class="button secondary" href="/drafts/{escape(draft.id)}">Редактировать</a>
             <form method="post" action="/drafts/{escape(draft.id)}" style="display:inline">
               <input type="hidden" name="text" value="{escape(draft.telegram_text)}">
               <input type="hidden" name="image_url" value="{escape(draft.image_url)}">
-              <button type="submit" name="action" value="ignore">Ignore</button>
+              <button type="submit" name="action" value="ignore">Игнорировать</button>
               {publish_button}
             </form>
           </div>
         </div>
         """)
-    body = "<h1>Newsroom</h1><p class='muted'>Editorial queue for intelligence review, editing, and publishing.</p>" + draft_filter_controls(q, category, urgency, source, status)
-    body += "".join(rows) or "<div class='card'><p>No drafts match these filters.</p></div>"
-    return page("Newsroom", body)
+    body = "<h1>Ньюсрум</h1><p class='muted'>Очередь материалов: сначала понять новость, затем проверить источник, отредактировать пост и только потом публиковать.</p>" + draft_filter_controls(q, category, urgency, source, status)
+    body += "".join(rows) or "<div class='card'><p>По этим фильтрам ничего не найдено.</p></div>"
+    return page("Ньюсрум", body)
 
 
 @app.get("/drafts/{draft_id}", response_class=HTMLResponse)
 def draft_detail(draft_id: str):
     draft = DraftStore().get(draft_id)
     if not draft:
-        return page("Draft not found", "<h1>Draft not found</h1><a class='button secondary' href='/drafts'>Back</a>")
+        return page("Черновик не найден", "<h1>Черновик не найден</h1><a class='button secondary' href='/drafts'>Назад</a>")
     analysis = draft.analysis
     affected = "".join(f"<li>{escape(group)}</li>" for group in draft.affected_groups)
     not_affected = "".join(f"<li>{escape(group)}</li>" for group in draft.not_affected_groups)
     actions = "".join(f"<li>{escape(step)}</li>" for step in analysis.get("action_steps_ru", []))
-    image = f'<img src="{escape(draft.image_url)}" alt="" style="max-width:100%; border-radius:12px; margin-top:12px;">' if draft.image_url else "<p class='muted'>No image detected yet.</p>"
+    image = f'<img src="{escape(draft.image_url)}" alt="" style="max-width:100%; border-radius:12px; margin-top:12px;">' if draft.image_url else "<p class='muted'>Изображение не найдено. Можно вставить URL вручную ниже.</p>"
     all_drafts = DraftStore().list_drafts()
     related = related_drafts(draft, all_drafts)
-    related_html = "".join(f'<li><a href="/drafts/{escape(item.id)}">{escape(item.title)}</a> <span class="muted">{escape(item.source)} | {escape(item.published_at or "")}</span></li>' for item in related) or "<li>No related collected news yet.</li>"
+    related_html = "".join(f'<li><a href="/drafts/{escape(item.id)}">{escape(editorial_headline(item))}</a> <span class="muted">{escape(item.source)} · {escape(format_date(item.published_at))}</span></li>' for item in related) or "<li>Похожих материалов пока нет.</li>"
     body = f"""
-    <h1>CMS Editor</h1>
-    <a class="button secondary" href="/newsroom">Back to newsroom</a>
-    <a class="button secondary" href="{escape(draft.url)}" target="_blank">Open source</a>
+    <h1>Редактор материала</h1>
+    <p class="lead">{escape(editorial_headline(draft))}</p>
+    <div class="toolbar">
+      <span class="pill">{escape(ru_status(draft.status))}</span>
+      <span class="pill">{escape(ru_category(draft.category))}</span>
+      <span class="pill">{escape(ru_urgency(draft.urgency))}</span>
+      <span class="pill">влияние {draft.impact_score}/100</span>
+      <span class="pill">уверенность: {escape(draft.confidence)}</span>
+    </div>
+    <a class="button secondary" href="/newsroom">Назад в ньюсрум</a>
+    <a class="button secondary" href="{escape(draft.url)}" target="_blank">Открыть источник</a>
     <div class="editor-grid">
       <div class="card">
-        <h2>Original article</h2>
+        <h2>Оригинал</h2>
         <h3>{escape(draft.title)}</h3>
-        <p class="muted">{escape(draft.source)} | {escape(draft.source_type)} | {escape(draft.published_at or "unknown")}</p>
+        <p class="muted">{escape(draft.source)} · {escape(draft.source_type)} · {escape(format_date(draft.published_at))}</p>
         {image}
-        <p><b>Source URL:</b> <a href="{escape(draft.url)}" target="_blank">{escape(draft.url)}</a></p>
-        <pre>{escape(draft.extracted_text or "Full text was not extracted. Use the source link above.")}</pre>
+        <p><b>Ссылка на источник:</b> <a href="{escape(draft.url)}" target="_blank">{escape(draft.url)}</a></p>
+        <pre>{escape(draft.extracted_text or "Полный текст не извлечен. Используйте ссылку на источник выше.")}</pre>
       </div>
       <div class="card">
-        <h2>AI analysis</h2>
-        <p><b>Russian summary:</b> {escape(draft.russian_summary)}</p>
-        <p><b>Plain explanation:</b> {escape(draft.russian_explanation)}</p>
-        <p><b>Urgency:</b> {escape(draft.urgency)} | <b>Impact:</b> {draft.impact_score} | <b>Confidence:</b> {escape(draft.confidence)}</p>
-        <p><b>Deadline:</b> {escape(draft.deadline or "none")} | <b>Effective date:</b> {escape(draft.effective_date or "none")}</p>
-        <p><b>Action required:</b> {escape(str(analysis.get("action_required", False)))}</p>
-        <p><b>Recommended action:</b> {escape(draft.recommended_action)}</p>
-        <p><b>Previous rule:</b> {escape(draft.previous_rule)}</p>
-        <p><b>New rule:</b> {escape(draft.new_rule)}</p>
-        <p><b>Possible consequences:</b> {escape(draft.possible_consequences)}</p>
-        <p><b>Affected groups</b></p><ul>{affected}</ul>
-        <p><b>Not affected</b></p><ul>{not_affected}</ul>
+        <h2>AI-анализ для редактора</h2>
+        <div class="explain"><b>Коротко:</b> {escape(draft.russian_summary or "Нет краткого объяснения.")}</div>
+        <p><b>Простыми словами:</b> {escape(draft.russian_explanation or "Нет объяснения.")}</p>
+        <p><b>Срок:</b> {escape(draft.deadline or "не найден")} · <b>Вступает в силу:</b> {escape(draft.effective_date or "не найдено")}</p>
+        <p><b>Нужно действие:</b> {escape("да" if analysis.get("action_required", False) else "нет / нужно проверить")}</p>
+        <p><b>Что рекомендовать читателю:</b> {escape(draft.recommended_action)}</p>
+        <p><b>Что было раньше:</b> {escape(draft.previous_rule)}</p>
+        <p><b>Что меняется:</b> {escape(draft.new_rule)}</p>
+        <p><b>Возможные последствия:</b> {escape(draft.possible_consequences)}</p>
+        <p><b>Кого касается</b></p><ul>{affected}</ul>
+        <p><b>Кого, вероятно, не касается</b></p><ul>{not_affected}</ul>
         <p>{''.join(f'<span class="pill">{escape(tag)}</span>' for tag in draft.tags)}</p>
       </div>
     </div>
     <div class="card">
-      <h2>Related news</h2>
+      <h2>Похожие материалы</h2>
       <ul>{related_html}</ul>
-      <a class="button secondary" href="/timeline/{escape(draft.category)}">Open {escape(draft.category)} timeline</a>
+      <a class="button secondary" href="/timeline/{escape(draft.category)}">Открыть таймлайн: {escape(ru_category(draft.category))}</a>
     </div>
     <div class="card">
-      <h2>Telegram editor</h2>
+      <h2>Редактор Telegram-поста</h2>
       <form method="post" action="/drafts/{escape(draft.id)}">
-        <label>Image URL
+        <label>URL изображения
           <input name="image_url" value="{escape(draft.image_url)}" placeholder="https://...">
         </label>
         {image}
         <textarea name="text">{escape(draft.telegram_text)}</textarea>
         <br>
-        <button type="submit" name="action" value="save">Save draft</button>
-        <button class="warn" type="submit" name="action" value="publish">Publish to Telegram</button>
-        <button type="submit" name="action" value="ignore">Ignore</button>
+        <button type="submit" name="action" value="save">Сохранить черновик</button>
+        <button class="warn" type="submit" name="action" value="publish">Опубликовать в Telegram</button>
+        <button type="submit" name="action" value="ignore">Игнорировать</button>
       </form>
     </div>
     """
-    return page("Draft details", body)
+    return page("Редактор материала", body)
 
 
 @app.post("/drafts/{draft_id}", response_class=HTMLResponse)
@@ -447,37 +530,37 @@ def update_draft(draft_id: str, text: str = Form(...), action: str = Form(...), 
         draft_for_quality = store.get(draft_id)
         if draft_for_quality and (draft_for_quality.impact_score < 35 or len(text.strip()) < 300):
             store.update(draft_id, draft_text=text, image_url=image_url)
-            result = "Draft saved, but not published: quality gate requires more editorial context before publishing."
+            result = "Черновик сохранен, но не опубликован: перед публикацией нужно больше редакторского контекста."
             body = f"""
             <h1>{escape(result)}</h1>
-            <a class="button" href="/drafts/{escape(draft_id)}">Back to draft</a>
-            <a class="button secondary" href="/newsroom">Newsroom</a>
+            <a class="button" href="/drafts/{escape(draft_id)}">Вернуться к материалу</a>
+            <a class="button secondary" href="/newsroom">Ньюсрум</a>
             """
-            return page("Draft updated", body)
+            return page("Черновик обновлен", body)
         if not settings.telegram_bot_token or not settings.telegram_channel:
             result = "Telegram не настроен. Проверь .env."
             store.update(draft_id, draft_text=text, image_url=image_url)
         else:
             draft = store.update(draft_id, draft_text=text, image_url=image_url)
             if not draft:
-                return page("Draft not found", "<h1>Draft not found</h1><a class='button secondary' href='/drafts'>Back</a>")
+                return page("Черновик не найден", "<h1>Черновик не найден</h1><a class='button secondary' href='/drafts'>Назад</a>")
             safe_text = ensure_publishable_text(text, draft.url)
             TelegramClient(settings.telegram_bot_token, settings.telegram_channel).send_message(safe_text)
             LocalState().mark_published(draft.url)
             store.update(draft_id, draft_text=safe_text, status="published", image_url=image_url)
-            result = "Draft published to Telegram."
+            result = "Материал опубликован в Telegram."
     elif action == "ignore":
         store.update(draft_id, draft_text=text, status="ignored", image_url=image_url)
-        result = "Draft marked as ignored."
+        result = "Материал помечен как игнорируемый."
     else:
         store.update(draft_id, draft_text=text, status="edited", image_url=image_url)
-        result = "Draft saved."
+        result = "Черновик сохранен."
     body = f"""
     <h1>{escape(result)}</h1>
-    <a class="button" href="/drafts/{escape(draft_id)}">Back to draft</a>
-    <a class="button secondary" href="/drafts">Draft queue</a>
+    <a class="button" href="/drafts/{escape(draft_id)}">Вернуться к материалу</a>
+    <a class="button secondary" href="/drafts">Очередь</a>
     """
-    return page("Draft updated", body)
+    return page("Черновик обновлен", body)
 
 
 @app.get("/check", response_class=HTMLResponse)
@@ -490,7 +573,7 @@ def check(q: str = "", category: str = "", importance: str = "", urgency: str = 
         urgency=urgency,
     )[:10]
     controls = filter_controls(q, category, importance, urgency)
-    header = "<div class='top'><div><h1>Черновики</h1><p class='muted'>Свежие неопубликованные материалы за последние 60 дней</p></div><a class='button secondary' href='/'>Dashboard</a></div>"
+    header = "<div class='top'><div><h1>Черновики</h1><p class='muted'>Свежие неопубликованные материалы за последние 60 дней</p></div><a class='button secondary' href='/'>Дашборд</a></div>"
     if not items:
         return page("Черновики", header + controls + "<div class='card'><p>Новых свежих неопубликованных материалов нет.</p></div>", active="drafts")
 
@@ -501,7 +584,7 @@ def check(q: str = "", category: str = "", importance: str = "", urgency: str = 
         cls = importance_class(item.importance)
         cards.append(f"""
         <div class="card draft {cls}">
-          <div><span class="pill {cls}">{escape(item.importance)}</span><span class="pill">{escape(item.category)}</span><span class="pill">urgency: {escape(analysis.urgency)}</span><span class="pill">{escape(item.source)}</span></div>
+          <div><span class="pill {cls}">{escape(ru_importance(item.importance))}</span><span class="pill">{escape(ru_category(item.category))}</span><span class="pill">{escape(ru_urgency(analysis.urgency))}</span><span class="pill">{escape(item.source)}</span></div>
           <h2>{escape(item.title)}</h2>
           <p class="muted">Дата: {escape(date)}</p>
           <p class="muted">Кого касается: {escape(", ".join(analysis.affected_groups))}</p>
@@ -516,7 +599,7 @@ def check(q: str = "", category: str = "", importance: str = "", urgency: str = 
 def edit(url: str):
     item = find_item_by_url(url)
     if not item:
-        return page("Not found", "<h1>Материал не найден</h1><a class='button secondary' href='/check'>Назад</a>", active="drafts")
+        return page("Материал не найден", "<h1>Материал не найден</h1><a class='button secondary' href='/check'>Назад</a>", active="drafts")
     store = DraftStore()
     store.ingest_items([item])
     draft_id = draft_id_for_url(item.url)
@@ -524,8 +607,8 @@ def edit(url: str):
     draft = stored.telegram_text if stored else build_post(item, use_ai=True)
     date = item.published_at.date().isoformat() if item.published_at else "no-date"
     body = f"""
-    <div class="top"><div><h1>Редактор</h1><p class="muted">{escape(item.source)} | {escape(date)} | {escape(item.category)} | {escape(item.importance)}</p></div><a class="button secondary" href="/check">Назад</a></div>
-    <a class="button secondary" href="/drafts/{escape(draft_id)}">Открыть в Draft queue</a>
+    <div class="top"><div><h1>Редактор</h1><p class="muted">{escape(item.source)} · {escape(date)} · {escape(ru_category(item.category))} · {escape(ru_importance(item.importance))}</p></div><a class="button secondary" href="/check">Назад</a></div>
+    <a class="button secondary" href="/drafts/{escape(draft_id)}">Открыть в ньюсруме</a>
     <div class="grid">
       <div class="card"><h2>Источник</h2><p>{escape(item.title)}</p><p><a href="{escape(item.url)}" target="_blank">Открыть оригинал</a></p><pre>{escape((item.summary or 'Краткое описание отсутствует')[:1200])}</pre></div>
       <div class="card"><h2>Предпросмотр Telegram</h2><pre>{escape(draft)}</pre></div>
@@ -545,8 +628,8 @@ def send_edited(url: str = Form(...), text: str = Form(...)):
         LocalState().mark_published(url)
         DraftStore().update_by_url(url, draft_text=ensure_publishable_text(text, url), status="published")
         result = "Пост отправлен в Telegram и помечен как опубликованный."
-    body = f"<h1>Готово</h1><a class='button' href='/check'>К черновикам</a><a class='button secondary' href='/'>Dashboard</a><div class='card'><pre>{escape(result)}</pre></div>"
-    return page("Sent", body, active="drafts")
+    body = f"<h1>Готово</h1><a class='button' href='/check'>К черновикам</a><a class='button secondary' href='/'>Дашборд</a><div class='card'><pre>{escape(result)}</pre></div>"
+    return page("Отправлено", body, active="drafts")
 
 
 @app.get("/published", response_class=HTMLResponse)
@@ -575,7 +658,7 @@ def publish_offline():
       </form>
     </div>
     """
-    return page("Publish offline", body)
+    return page("Публикация без редактирования", body)
 
 
 @app.post("/publish-offline", response_class=HTMLResponse)
@@ -585,7 +668,7 @@ def publish_offline_confirmed():
     else:
         count = publish_new_items(settings.telegram_bot_token, settings.telegram_channel, limit=1, use_ai=False, days=60)
         result = f"Опубликовано: {count}"
-    return page("Publish", f"<h1>Публикация</h1><div class='card'><pre>{escape(result)}</pre></div>", active="drafts")
+    return page("Публикация", f"<h1>Публикация</h1><div class='card'><pre>{escape(result)}</pre></div>", active="drafts")
 
 
 @app.get("/daily-summary", response_class=HTMLResponse)
@@ -596,7 +679,7 @@ def daily_summary():
         client = TelegramClient(settings.telegram_bot_token, settings.telegram_channel)
         client.send_message(build_daily_summary_text(days=1))
         result = "Daily summary отправлен в Telegram."
-    return page("Daily summary", f"<h1>Daily summary</h1><div class='card'><pre>{escape(result)}</pre></div>", active="summary")
+    return page("Ежедневная сводка", f"<h1>Ежедневная сводка</h1><div class='card'><pre>{escape(result)}</pre></div>", active="summary")
 
 
 @app.get("/api/pending")
@@ -629,24 +712,24 @@ def global_search(q: str = ""):
     for draft in results[:50]:
         rows.append(f"""
         <div class="card">
-          <h3><a href="/drafts/{escape(draft.id)}">{escape(draft.title)}</a></h3>
-          <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.status)} | impact {draft.impact_score}</p>
-          <p>{escape(draft.russian_summary)}</p>
+          <h3><a href="/drafts/{escape(draft.id)}">{escape(editorial_headline(draft))}</a></h3>
+          <p class="muted">{escape(draft.source)} · {escape(ru_category(draft.category))} · {escape(ru_status(draft.status))} · влияние {draft.impact_score}/100</p>
+          <p>{escape(draft.russian_explanation or draft.russian_summary)}</p>
           <p>{''.join(f'<span class="pill">{escape(tag)}</span>' for tag in draft.tags[:8])}</p>
         </div>
         """)
     body = f"""
-    <h1>Global search</h1>
+    <h1>Глобальный поиск</h1>
     <div class="card">
       <form method="get">
-        <label>Search title, body, AI summary, tags, source, affected group
-          <input name="q" value="{escape(q)}" placeholder="TPS deadline USCIS">
+        <label>Ищет по заголовку, тексту, AI-объяснению, тегам, источнику и affected groups
+          <input name="q" value="{escape(q)}" placeholder="TPS дедлайн USCIS">
         </label>
-        <button type="submit">Search</button>
+        <button type="submit">Найти</button>
       </form>
     </div>
-    """ + ("".join(rows) if rows else "<div class='card'><p>No results.</p></div>")
-    return page("Global search", body)
+    """ + ("".join(rows) if rows else "<div class='card'><p>Ничего не найдено.</p></div>")
+    return page("Глобальный поиск", body)
 
 
 @app.get("/timelines", response_class=HTMLResponse)
@@ -655,10 +738,10 @@ def timelines():
     store.ingest_items(collect_sources().items)
     counts = topic_counts(store.list_drafts())
     rows = "".join(
-        f'<div class="metric">{escape(category.upper())}<b>{count}</b><a class="button secondary" href="/timeline/{escape(category)}">Open timeline</a></div>'
+        f'<div class="metric"><span>{escape(ru_category(category))}</span><b>{count}</b><a class="button secondary" href="/timeline/{escape(category)}">Открыть</a></div>'
         for category, count in sorted(counts.items())
     )
-    return page("Timelines", f"<h1>Topic timelines</h1><div class='grid'>{rows}</div>")
+    return page("Таймлайны", f"<h1>Таймлайны по темам</h1><div class='grid'>{rows}</div>")
 
 
 @app.get("/timeline/{category}", response_class=HTMLResponse)
@@ -674,7 +757,7 @@ def timeline(category: str):
           <p>{escape(draft.russian_summary)}</p>
         </div>
         """)
-    return page(f"{category} timeline", f"<h1>{escape(category.upper())} timeline</h1>" + ("".join(rows) if rows else "<div class='card'><p>No timeline entries yet.</p></div>"))
+    return page(f"Таймлайн: {ru_category(category)}", f"<h1>Таймлайн: {escape(ru_category(category))}</h1>" + ("".join(rows) if rows else "<div class='card'><p>Пока нет материалов по этой теме.</p></div>"))
 
 
 @app.get("/archive", response_class=HTMLResponse)
@@ -685,12 +768,12 @@ def archive():
     for draft in store.list_drafts(status="published") or store.list_drafts()[:20]:
         rows.append(f"""
         <div class="card">
-          <h3><a href="/archive/{escape(draft.id)}">{escape(draft.russian_summary or draft.title)}</a></h3>
-          <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.published_at or "")}</p>
+          <h3><a href="/archive/{escape(draft.id)}">{escape(editorial_headline(draft))}</a></h3>
+          <p class="muted">{escape(draft.source)} · {escape(ru_category(draft.category))} · {escape(format_date(draft.published_at))}</p>
           <p>{escape(draft.russian_explanation)}</p>
         </div>
         """)
-    return page("Public archive", "<h1>Public archive</h1><p class='muted'>SEO-ready Russian explanations with source links and related news.</p>" + "".join(rows))
+    return page("Публичный архив", "<h1>Публичный архив</h1><p class='muted'>Русские объяснения, ссылки на источники и похожие материалы.</p>" + "".join(rows))
 
 
 @app.get("/archive/{draft_id}", response_class=HTMLResponse)
@@ -698,14 +781,14 @@ def archive_detail(draft_id: str):
     store = DraftStore()
     draft = store.get(draft_id)
     if not draft:
-        return page("Not found", "<h1>Article not found</h1><a class='button secondary' href='/archive'>Archive</a>")
+        return page("Не найдено", "<h1>Материал не найден</h1><a class='button secondary' href='/archive'>Архив</a>")
     related = related_drafts(draft, store.list_drafts())
-    related_html = "".join(f'<li><a href="/archive/{escape(item.id)}">{escape(item.russian_summary or item.title)}</a></li>' for item in related) or "<li>No related news yet.</li>"
+    related_html = "".join(f'<li><a href="/archive/{escape(item.id)}">{escape(editorial_headline(item))}</a></li>' for item in related) or "<li>Похожих материалов пока нет.</li>"
     share_url = f"/archive/{escape(draft.id)}"
     image = f'<img src="{escape(draft.image_url)}" alt="" style="max-width:100%; border-radius:8px;">' if draft.image_url else ""
     body = f"""
-    <h1>{escape(draft.russian_summary or draft.title)}</h1>
-    <p class="muted">{escape(draft.source)} | {escape(draft.category)} | {escape(draft.published_at or "")}</p>
+    <h1>{escape(editorial_headline(draft))}</h1>
+    <p class="muted">{escape(draft.source)} · {escape(ru_category(draft.category))} · {escape(format_date(draft.published_at))}</p>
     {image}
     <div class="card">
       <h2>Русское объяснение</h2>
@@ -716,9 +799,9 @@ def archive_detail(draft_id: str):
       <p>Информационный пост, не юридическая консультация.</p>
     </div>
     <div class="card">
-      <h2>Related news</h2>
+      <h2>Похожие материалы</h2>
       <ul>{related_html}</ul>
-      <p><a class="button secondary" href="https://t.me/share/url?url={share_url}">Share to Telegram</a></p>
+      <p><a class="button secondary" href="https://t.me/share/url?url={share_url}">Поделиться в Telegram</a></p>
     </div>
     """
     return page(draft.russian_summary or draft.title, body, description=draft.russian_explanation[:150])

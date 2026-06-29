@@ -8,11 +8,20 @@ from app.models import NewsItem
 
 
 def fallback_editorial_text(item: NewsItem, analysis: IntelligenceAnalysis) -> tuple[str, str]:
-    summary = analysis.plain_summary_ru
+    urgency = {"high": "срочно", "medium": "важно", "low": "обычно"}.get(analysis.urgency, analysis.urgency)
+    date = item.published_at.date().isoformat() if item.published_at else "дата публикации не указана"
+    affected = ", ".join(analysis.affected_groups[:3]) if analysis.affected_groups else "категория пока не определена"
+    deadline = f" Срок, который нужно проверить: {analysis.deadline}." if analysis.deadline else ""
+    effective = f" Дата вступления в силу: {analysis.effective_date}." if analysis.effective_date else ""
+    summary = f"{analysis.plain_summary_ru} Новость: «{item.title}»."
     explanation = (
-        f"Официальный источник сообщает об обновлении: {item.title}. "
-        f"Категория: {item.category}. Срочность: {analysis.urgency}. "
-        "Перед любыми действиями важно сверить детали в первоисточнике."
+        f"{item.source} опубликовал материал ({date}) по теме «{item.title}». "
+        f"Предварительно это может касаться: {affected}. "
+        f"Срочность: {urgency}; оценка влияния: {analysis.impact_score}/100. "
+        f"{analysis.new_rule_ru} {analysis.possible_consequences_ru}"
+        f"{deadline}{effective} "
+        "Это редакционная выжимка для первичной оценки: перед публикацией откройте источник, "
+        "проверьте точные формулировки и не добавляйте неподтвержденные выводы."
     )
     return summary, explanation
 

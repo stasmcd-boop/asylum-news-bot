@@ -17,6 +17,7 @@ from app.search import filter_items, matches_query
 from app.source_registry import parse_additional_sources
 from app.sources import _parse_page_date, deduplicate_items, rank_items
 from web_app import ensure_publishable_text
+from web_app import page
 
 
 def offline_editorial_builder(item, _extracted_text, analysis):
@@ -250,6 +251,33 @@ class DraftStoreTests(unittest.TestCase):
             self.assertEqual(store.get(draft.id).status, "ignored")
             self.assertEqual(store.get(draft.id).telegram_text, "new text")
             self.assertEqual(store.get(draft.id).image_url, "https://example.com/manual.jpg")
+
+
+class EditorialUxTests(unittest.TestCase):
+    def test_fallback_editorial_text_explains_source_and_impact(self):
+        item = NewsItem(
+            source="USCIS News",
+            title="USCIS announces asylum filing deadline by July 15, 2026",
+            url="https://example.com/asylum-deadline",
+            category="asylum",
+            importance="medium",
+            summary="Applications must be filed by July 15, 2026.",
+        )
+        analysis = analyze_item(item)
+
+        summary, explanation = fallback_editorial_text(item, analysis)
+
+        self.assertIn(item.title, summary)
+        self.assertIn("USCIS News", explanation)
+        self.assertIn("оценка влияния", explanation)
+        self.assertIn("перед публикацией", explanation)
+
+    def test_page_shell_is_russian(self):
+        html = page("Тест", "<h1>Контент</h1>")
+
+        self.assertIn("Иммиграционная разведка", html)
+        self.assertIn("Ньюсрум", html)
+        self.assertIn("Публичный", html)
 
 
 class TelegramPostTests(unittest.TestCase):
